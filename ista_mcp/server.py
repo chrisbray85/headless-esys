@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import time
 
-from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.mcpserver import Image, MCPServer
 
 GARAGE = os.environ.get("ISTA_MCP_SSH", "user@100.x.y.z")
 REMOTE_DIR = "C:/ista-mcp"
@@ -23,7 +23,7 @@ SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 ALLOW_INPUT = os.environ.get("ISTA_MCP_ALLOW_INPUT") == "1"
 SSH_OPTS = ["-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
 
-mcp = FastMCP("ista-garage")
+mcp = MCPServer("ista-garage")
 
 
 def _ssh(cmd: str, timeout: int = 40) -> str:
