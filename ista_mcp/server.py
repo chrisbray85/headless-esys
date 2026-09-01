@@ -129,5 +129,13 @@ def press_key(key: str) -> str:
     return _send("KEY " + key)
 
 
+@mcp.tool()
+def scroll(notches: int = -3) -> str:
+    """(opt-in) Mouse-wheel scroll the window under the cursor. Negative scrolls
+    down, positive up; ~3 notches is a few lines. Use when an ISTA test-plan panel
+    clips its text, then screenshot() again to read the rest."""
+    return _send(f"SCROLL {notches * 120}")
+
+
 if __name__ == "__main__":
     mcp.run()
