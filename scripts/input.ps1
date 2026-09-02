@@ -25,11 +25,10 @@ $uiaOut = "C:\ista-mcp\uia.txt"
 function Log($m) { "$(Get-Date -Format s) $m" | Add-Content $log }
 
 try {
-  $a = (Get-Content "C:\ista-mcp\action.txt" -Raw).Trim()
-  Log "IN [$a]"
-  $parts = $a -split '\s+', 2
-  $verb = $parts[0]
-  $arg = if ($parts.Count -gt 1) { $parts[1] } else { "" }
+  # action.txt may hold SEVERAL lines - they run in order inside this one process,
+  # so a popup menu opened by RCLICK survives until the KEY/CLICK that picks from it.
+  $actions = @(Get-Content "C:\ista-mcp\action.txt" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  Log ("IN [" + ($actions -join ' | ') + "]")
 
   # DPI fix (2 Sep 2026): PowerShell is DPI-unaware, so at 125% scaling on a
   # 1920x1080 panel PrimaryScreen.Bounds reported 1536x864 - the capture was the
@@ -54,10 +53,14 @@ public class Inp {
     int nx=(int)((double)x*65535/(W-1)), ny=(int)((double)y*65535/(H-1));
     uint down = presses < 0 ? RD : LD, up = presses < 0 ? RU : LU;
     int n = presses < 0 ? 1 : presses;
-    IN[] a=new IN[1+2*n];
-    a[0].type=0; a[0].mi.dx=nx; a[0].mi.dy=ny; a[0].mi.flags=MOVE|ABS;
-    for (int i=0;i<n;i++){ a[1+2*i].type=0; a[1+2*i].mi.flags=down; a[2+2*i].type=0; a[2+2*i].mi.flags=up; }
-    return SendInput((uint)a.Length,a,Marshal.SizeOf(typeof(IN)));
+    // Move first, then pause: Java Swing popup menus and tooltips only arm an item
+    // after a hover, so a move+press in one SendInput batch falls through the menu.
+    IN[] m=new IN[1]; m[0].type=0; m[0].mi.dx=nx; m[0].mi.dy=ny; m[0].mi.flags=MOVE|ABS;
+    uint sent=SendInput(1,m,Marshal.SizeOf(typeof(IN)));
+    System.Threading.Thread.Sleep(120);
+    IN[] a=new IN[2*n];
+    for (int i=0;i<n;i++){ a[2*i].type=0; a[2*i].mi.flags=down; a[2*i+1].type=0; a[2*i+1].mi.flags=up; }
+    return sent+SendInput((uint)a.Length,a,Marshal.SizeOf(typeof(IN)));
   }
   public static uint Wheel(int amt){ IN[] a=new IN[1]; a[0].type=0; a[0].mi.data=(uint)amt; a[0].mi.flags=WH; return SendInput(1,a,Marshal.SizeOf(typeof(IN))); }
 }
@@ -118,6 +121,10 @@ public class Inp {
     return "clicked centre $x,$y sent=$n"
   }
 
+  foreach ($a in $actions) {
+  $parts = $a -split '\s+', 2
+  $verb = $parts[0]
+  $arg = if ($parts.Count -gt 1) { $parts[1] } else { "" }
   switch ($verb) {
     "PING"   { Log "PING ok screen=${W}x${H}" }
     "CLICK"  { $xy = $arg -split '\s+'; $r = [Inp]::Click([int]$xy[0], [int]$xy[1], $W, $H); Log "CLICK $arg screen=${W}x${H} sent=$r" }
@@ -163,6 +170,8 @@ public class Inp {
         Log "UIA '$arg' -> $how"
       }
     }
+  }
+  Start-Sleep -Milliseconds 350
   }
 } catch {
   $err = "ERROR $($_.Exception.Message)"

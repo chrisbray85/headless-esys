@@ -338,10 +338,13 @@ def setup() -> str:
         f'powershell -NoProfile -Command "try {{ Add-MpPreference -ExclusionPath '
         f"'{REMOTE_WIN}' -ErrorAction Stop; 'defender-exclusion-ok' }} catch "
         f"{{ 'defender-exclusion-FAILED: ' + $_.Exception.Message }}\"")
-    for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1", "diagnose.ps1"):
+    for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1", "diagnose.ps1",
+              "run-hidden.vbs"):
         _scp(str(SCRIPTS / f), f"{GARAGE}:{REMOTE_DIR}/{f}")
-    ps = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
-          f"-File {REMOTE_WIN}\\grab.ps1")
+    # wscript + run-hidden.vbs: no console window at all (a hidden powershell still
+    # flashes one, which steals focus and kills Java popup menus mid-sequence).
+    hidden = f"wscript.exe //B //Nologo {REMOTE_WIN}\\run-hidden.vbs"
+    ps = f"{hidden} {REMOTE_WIN}\\grab.ps1"
     tasks = {
         "IstaGrab": f"{ps} -Format jpg -Out {REMOTE_WIN}\\screen.jpg "
                     f"-ConfigFile {REMOTE_WIN}\\stream.cfg",
@@ -352,8 +355,7 @@ def setup() -> str:
     }
     for tn, tr in tasks.items():
         _ssh(f'schtasks /create /tn {tn} /tr "{tr}" /sc once /st 23:59 /it /f')
-    ips = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
-           f"-File {REMOTE_WIN}\\input.ps1")
+    ips = f"{hidden} {REMOTE_WIN}\\input.ps1"
     # /rl HIGHEST => the input task runs ELEVATED (high integrity), so injected clicks
     # land into an elevated ISTA window instead of being silently dropped by UIPI -
     # no ISTA restart needed. This only works because the SSH login is an admin (Task
@@ -620,6 +622,17 @@ def click(x: int, y: int) -> str:
     VO/FA write, or TAL execute/flash - those stay human-confirmed, and EsysUltra's
     Full Backup must run first. Never click anything during an active flash/write."""
     return _send(f"CLICK {x} {y}")
+
+
+@mcp.tool()
+def input_sequence(actions: list[str]) -> str:
+    """(opt-in) Run several input actions in ONE helper pass, ~350 ms apart, so a
+    popup menu opened by one step is still open for the next. Each item is a raw
+    verb line: "CLICK x y", "RCLICK x y", "DBLCLICK x y", "SCROLL n", "TYPE text",
+    "KEY {DOWN}{DOWN}{ENTER}" (SendKeys syntax; ENTER/TAB/ESC also accepted).
+    Example - E-Sys context menu, 2nd item: ["RCLICK 452 710", "KEY {DOWN}{DOWN}{ENTER}"].
+    Same HARD RULE as click(): never a write-to-car item."""
+    return _send("\n".join(a.strip() for a in actions if a.strip()))
 
 
 @mcp.tool()
