@@ -1,6 +1,6 @@
 # Cheat-sheet index
 
-Generated from 21 XML files, 2837 entries. Regenerate with `python scripts/cheat_index.py`. Series codes: S18A = G20/G21 3-series, F001/F010 = F01/F10, etc. Always Review before Apply - a property may not exist in your car's CAFD version.
+Generated from 22 XML files, 2894 entries. Regenerate with `python scripts/cheat_index.py`. Series codes: S18A = G20/G21 3-series, F001/F010 = F01/F10, etc. Always Review before Apply - a property may not exist in your car's CAFD version.
 
 ## F001
 

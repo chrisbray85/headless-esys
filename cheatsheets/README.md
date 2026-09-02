@@ -7,7 +7,7 @@ coding file (CAFD id), the car series it applies to, and the author.
 **Credit:** every entry carries its author's name inside the XML (Almaretto, Botho,
 Bundang_Thunder, jokinawa, siegester, stanleyy, ekfxisid, otakar, packetpilot,
 pmooiweer, ruben_17non, SergAA, TMD29, aboulfad, aknight720, dmnc02, Kip_M3,
-PerryGunn, simpaty, tutuianu_daniel and others). They were shared publicly on the
+PerryGunn, simpaty, tutuianu_daniel, FlashXCode and others). They were shared publicly on the
 Bimmerpost and Bimmerfest E-Sys coding threads for exactly this use. This folder just
 keeps them together and indexed; nothing here is ours except `INDEX.md`. If you are an
 author and want a change, open an issue.
@@ -18,13 +18,13 @@ thread. Read that guide for what does and does not work on a G20.
 
 ## Coverage and where to find more
 
-The 21 files here cover 66 series codes (most F- and G-series cars, MINI F5x/F6x,
+The 22 files here cover 66 series codes (most F- and G-series cars, MINI F5x/F6x,
 some i- and RR-series). Newer or car-specific sheets appear in these places; if you
 add one, keep the author attribute and re-run `python scripts/cheat_index.py`:
 
 - Bimmerpost / Bimmerfest "E-Sys Launcher cheat sheet" and per-model coding threads
 - <https://github.com/siegester03/bmw-g-series-coding> (G20 verified list)
-- EsysUltra's own `CheatSheets` folder, which is updated with the app
+- EsysUltra's own `CheatSheets` folder, which is updated with the app (checked 2 Sep 2026: same community set as here, plus their format-example template)
 - BimmerCode's community list (different format; property names still apply)
 
 ## Use

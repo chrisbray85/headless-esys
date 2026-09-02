@@ -29,9 +29,10 @@ def entries(only_series=None):
                 for fa, val in FUNC.findall(c.group(2)):
                     cm = re.search(r'comment="([^"]*)"', fa)
                     props.append(f"{(cm.group(1) if cm else '?').split(' (')[0]} = {val.strip()}")
+                author = re.sub(r"<[^>]+>", "", a.get("author", xml.stem)).strip() or xml.stem
                 yield dict(series=series, ecu=a.get("name", "?"), cafd=a.get("id", "?"),
-                           desc=c.group(1).strip(), props="; ".join(props),
-                           author=a.get("author", xml.stem), file=xml.name)
+                           desc=re.sub(r"<[^>]+>", "", c.group(1)).strip(), props="; ".join(props),
+                           author=author, file=xml.name)
 
 
 def table(rows):
