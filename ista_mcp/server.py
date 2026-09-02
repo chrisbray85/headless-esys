@@ -538,32 +538,39 @@ def _send(line: str) -> str:
 
 
 @mcp.tool()
-def list_controls(name_filter: str = "") -> str:
-    """List ISTA's actionable UI controls (buttons, tabs, list/tree items, links,
-    fields) by their real UIAutomation names - read-only, works even while ISTA runs
-    elevated. Use this to find the exact name for click_control() instead of hunting
-    pixel coordinates on a screenshot. Optional name_filter narrows the list.
+def list_controls(name_filter: str = "", app: str = "ISTAGUI") -> str:
+    """List an app's actionable UI controls (buttons, tabs, list/tree items, links,
+    fields) by their real UIAutomation names - read-only, works even while the app
+    runs elevated. Use it to find the exact name for click_control() instead of
+    hunting pixel coordinates. Optional name_filter narrows the list.
+
+    app is a process-name substring: "ISTAGUI" (default, ISTA+), "EsysUltra" or
+    "E-Sys" for BMW coding. This is also the probe for whether an app is UIA-driveable
+    at all - a WPF/.NET app (ISTA, EsysUltra) lists richly; a pure-Java app (E-Sys)
+    may show little, in which case fall back to screenshot() + coordinate click().
     Columns: ControlType, Name, AutomationId, X,Y,W,H, Enabled."""
-    line = "UIALIST" + (f" {name_filter}" if name_filter else "")
+    line = f"UIALIST @{app}" + (f" {name_filter}" if name_filter else "")
     return _action(line, want_result=True, wait=20.0)
 
 
 @mcp.tool()
-def click_control(name: str) -> str:
-    """(opt-in) Act on an ISTA control BY NAME via UIAutomation - the robust
-    alternative to coordinate click(). Matching is case-insensitive: exact, then
-    prefix, then substring (list_controls() shows the real names). Uses the
-    control's own Invoke/Select/Toggle/Expand pattern, falling back to a physical
-    click at its centre. Returns what happened.
+def click_control(name: str, app: str = "ISTAGUI") -> str:
+    """(opt-in) Act on a control BY NAME via UIAutomation - the robust alternative to
+    coordinate click(). Matching is case-insensitive: exact, then prefix, then
+    substring (list_controls() shows the real names). Uses the control's own
+    Invoke/Select/Toggle/Expand pattern, falling back to a physical click at its
+    centre. app is a process-name substring: "ISTAGUI" (default), "EsysUltra", etc.
 
     The IstaInput task runs elevated (/rl HIGHEST), so this lands even into an
-    elevated ISTA. If nothing responds, run diagnose() (usually a wedged scheduler),
-    and ista_elevation('off') + restart ISTA is the fallback. Do NOT use during a
-    flash/coding/actuator write."""
+    elevated window. If nothing responds, run diagnose() (usually a wedged scheduler).
+
+    HARD RULE for BMW coding (EsysUltra/E-Sys): only click READ/navigate controls
+    autonomously. Anything that WRITES to the car - code / program / flash / FDL
+    write / VCM - stays human-confirmed. Never click it during an active write."""
     if not ALLOW_INPUT:
         return ("Input is disabled. Set ISTA_MCP_ALLOW_INPUT=1 to enable it, and "
                 "NEVER enable it during a flash / coding / actuator write.")
-    return _action(f"UIA {name}", want_result=True)
+    return _action(f"UIA @{app} {name}", want_result=True)
 
 
 @mcp.tool()

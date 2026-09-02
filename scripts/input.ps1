@@ -58,16 +58,19 @@ public class Inp {
   $ACTIONABLE = @("Button","TabItem","ListItem","TreeItem","Hyperlink","MenuItem",
                   "ComboBox","CheckBox","RadioButton","Edit","SplitButton","DataItem")
 
-  function Get-IstaElements {
+  function Get-AppElements([string]$procMatch = "ISTAGUI") {
+    # UIA controls for any app, matched by process-name substring (ISTAGUI, EsysUltra,
+    # E-Sys, ...). Works for .NET/WPF apps; a pure-Java app (E-Sys) may expose little
+    # unless the Java Access Bridge is on - UIALIST against it is the quick probe.
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-    $procs = @(Get-Process ISTAGUI -ErrorAction SilentlyContinue)
-    if (-not $procs) { throw "ISTAGUI.exe is not running" }
+    $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*$procMatch*" })
+    if (-not $procs) { throw "$procMatch is not running" }
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $wins = @()
     $tops = $root.FindAll([System.Windows.Automation.TreeScope]::Children,
                           [System.Windows.Automation.Condition]::TrueCondition)
     foreach ($w in $tops) { if ($procs.Id -contains $w.Current.ProcessId) { $wins += $w } }
-    if (-not $wins) { throw "no top-level ISTA window found via UIA" }
+    if (-not $wins) { throw "no top-level window found via UIA for '$procMatch'" }
     $conds = foreach ($t in $ACTIONABLE) {
       New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
@@ -113,19 +116,24 @@ public class Inp {
     "TYPE"   { [System.Windows.Forms.SendKeys]::SendWait($arg); Log "TYPE done" }
     "KEY"    { $k = switch ($arg.ToUpper()) { "ENTER" {"{ENTER}"} "TAB" {"{TAB}"} "ESC" {"{ESC}"} default {$arg} }; [System.Windows.Forms.SendKeys]::SendWait($k); Log "KEY $k" }
     "UIALIST" {
-      $els = Get-IstaElements
+      # optional "@proc" first token targets another app (default ISTAGUI)
+      $target = "ISTAGUI"
+      if ($arg -match '^\s*@(\S+)\s*(.*)$') { $target = $Matches[1]; $arg = $Matches[2] }
+      $els = Get-AppElements $target
       $lines = foreach ($el in $els) {
         $d = Describe $el
         if (-not $arg -or $d -like "*$arg*") { $d }
       }
       $lines = @($lines | Where-Object { $_ -notmatch "^\S+`t`t`t" })  # drop no-name no-id noise
-      $head = "# ControlType`tName`tAutomationId`tX,Y,W,H`tEnabled  ({0} shown)" -f $lines.Count
+      $head = "# app=$target  ControlType`tName`tAutomationId`tX,Y,W,H`tEnabled  ({0} shown)" -f $lines.Count
       Set-Content -LiteralPath $uiaOut -Value (@($head) + ($lines | Select-Object -First 400))
-      Log "UIALIST '$arg' -> $($lines.Count) controls"
+      Log "UIALIST @$target '$arg' -> $($lines.Count) controls"
     }
     "UIA" {
+      $target = "ISTAGUI"
+      if ($arg -match '^\s*@(\S+)\s*(.*)$') { $target = $Matches[1]; $arg = $Matches[2] }
       if (-not $arg) { throw "UIA needs a control name" }
-      $els = Get-IstaElements
+      $els = Get-AppElements $target
       $usable = @($els | Where-Object { $_.Current.Name })
       $exact  = @($usable | Where-Object { $_.Current.Name -ieq $arg })
       $prefix = @($usable | Where-Object { $_.Current.Name -ilike "$arg*" })
