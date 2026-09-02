@@ -11,35 +11,58 @@ it reads the screen and logs of an ISTA install you already run.
 
 ISTA holds BMW's entire diagnostic knowledge base (fault databases, guided test plans,
 wiring, repair procedures) but its UI is slow to drive by hand and impossible to
-automate through. This wraps a headless garage laptop so an LLM can *see* ISTA
-(screenshots), *read* its logs, and - opt-in - *act* on it, while the human stays in
-the loop for anything that touches the car.
+automate through. This wraps a headless garage laptop so an LLM can *read* ISTA's
+content as text, *see* its graphs, and - opt-in - *act* on it, while the human stays
+in the loop for anything that touches the car.
 
 ## Architecture
 
 ```
 MCP client (Claude)  ──stdio──▶  ista_mcp/server.py  ──ssh/scp over Tailscale──▶  Garage laptop (Windows + ISTA+)
+                                                                                   ├─ state.ps1  (ONE call: doc HTML + frame + ISTA status)
                                                                                    ├─ grab.ps1   (one-shot + continuous-loop capture, interactive session)
-                                                                                   └─ input.ps1  (click / type / key, opt-in)
+                                                                                   ├─ input.ps1  (UIA click-by-name / coordinate click / type / key, opt-in)
+                                                                                   └─ elev.ps1   (RUNASADMIN layer on/off - why clicks land or don't)
 ```
 
 The Windows box runs ISTA in a logged-in desktop session. SSH lands in a non-interactive
 session (Windows "Session 0"), so screen capture and input are executed via `schtasks`
 with the `/it` (interactive token) flag - the one trick that reaches the real desktop.
+`state.ps1` and `elev.ps1` only read files / HKCU, so they run directly over SSH.
+
+### The two design rules (learned diagnosing a real fault)
+
+1. **Read text as text, not as pixels.** ISTA renders whatever document/procedure/
+   fault description it is displaying as HTML to `%LOCALAPPDATA%\Temp\tempWebView.html`.
+   `read_doc()` / `read_state()` pull and parse that: full text in one round-trip - no
+   OCR, no screen-edge clipping, no screenshot-scp-read-repeat loop. Screenshots are
+   reserved for genuinely graphical things (live actuation-test traces, dialog state).
+2. **Input only lands in a non-elevated ISTA.** ISTA set to always-run-as-admin means
+   Windows UIPI silently discards injected clicks from a medium-integrity helper -
+   screenshots keep working, so it looks like ISTA "ignored" the click. Diagnosis
+   doesn't need admin (only programming/coding does): `ista_elevation("off")` +
+   restart ISTA, and clicks land. `click_control(name)` then drives ISTA's WPF UI via
+   UIAutomation (Invoke/Select by control name - robust against layout shifts),
+   falling back to coordinate clicks only when a control exposes no pattern.
 
 ## Tools
 
 | Tool | Kind | What |
 |------|------|------|
 | `setup()` | install | Copies the PS1 helpers up and registers the scheduled tasks. Run once (and after editing the PS1s). |
-| `screenshot(fmt="jpg")` | read | One-shot live screen as an image. `jpg` = compressed (~tens of KB, default); `png` = lossless (~600 KB) fallback. |
+| `read_state(with_frame, fresh_ms)` | read | **Primary read.** One round-trip: parsed text of ISTA's displayed document + one JPEG frame + ISTA running/elevated status. |
+| `read_doc(raw)` | read | Just the displayed document's full text (from `tempWebView.html`), fastest path. `raw=True` for the untouched HTML. |
+| `list_controls(name_filter)` | read | ISTA's actionable controls by real UIA name (buttons, tabs, items). The menu for `click_control()`. |
+| `ista_elevation(mode)` | admin | `status` / `off` / `on` for the RUNASADMIN layer - the reason clicks do or don't land. |
+| `screenshot(fmt="jpg")` | read | One-shot live screen as an image - for graphs/dialog state. `jpg` = compressed (~tens of KB, default); `png` = lossless (~600 KB) fallback. |
 | `start_stream(quality, interval_ms, scale, max_seconds)` | read | Start a continuous capture loop on the laptop writing the newest frame to `live.jpg`. |
 | `latest_frame()` | read | **Fast/near-live:** pull the newest streamed frame - no scheduler trigger, no wait. Falls back to `screenshot()` if no stream is running. |
 | `stop_stream()` | read | Stop the capture loop (saves hotspot bandwidth + CPU). |
 | `list_sessions()` | read | Recent ISTA log-session folders, newest first. |
 | `read_log(path, contains, tail)` | read | Read/grep/tail any file (ISTA logs, .properties, dumps). |
 | `run(command)` | read | Read-only shell on the laptop (dir, reg query, tasklist, findstr, PowerShell). |
-| `click(x, y)` | **opt-in** | Left-click at coordinates. |
+| `click_control(name)` | **opt-in** | Act on an ISTA control **by name** via UIAutomation (Invoke/Select/Toggle/Expand, centre-click fallback). Preferred over `click()`. |
+| `click(x, y)` | **opt-in** | Left-click at coordinates (fallback when a control exposes no name). |
 | `type_text(text)` | **opt-in** | Type into the focused field. |
 | `press_key(key)` | **opt-in** | ENTER / TAB / ESC. |
 | `scroll(notches)` | **opt-in** | Mouse-wheel the window under the cursor (negative = down). |
@@ -128,61 +151,51 @@ scheduled tasks on the laptop. After that, `screenshot()` and the read tools wor
 Prerequisites on the laptop: SSH server enabled, a logged-in desktop session, ISTA+
 installed. All of these are already true for the garage build.
 
-## Deploying the fast-capture upgrade
+## First session after the v2 (text-first) upgrade
 
-> The garage laptop is often mid-diagnosis. **Do this only when no car job is running**
-> (registering tasks and the first capture briefly touch the desktop session). Nothing
-> here writes to a vehicle.
+> Do this when no car job is running. Nothing here writes to a vehicle.
 
-**What to push:** just the updated `scripts/grab.ps1` (the new `server.py` runs on the
-Mac and needs no laptop-side deploy). The safe path is simply to re-run `setup()` from
-the MCP client - it copies `grab.ps1` up and (re)registers the tasks.
+One command from the Mac deploys and verifies everything:
 
-**To deploy:**
+```bash
+.venv/bin/python scripts/smoke.py --deploy
+```
 
-1. From the MCP client, call `setup()` once. This copies `grab.ps1` and registers
-   `IstaGrab` (JPEG one-shot), `IstaGrabPng` (PNG fallback) and `IstaGrabLoop` (stream).
-   (Equivalent by hand: `scp scripts/grab.ps1 user@100.x.y.z:C:/ista-mcp/grab.ps1`,
-   then the three `schtasks /create ... /it /f` lines `setup()` runs.)
-2. Verify the one-shot: `screenshot()` should return a small JPEG.
-3. Verify the stream: `start_stream()`, then a couple of `latest_frame()` calls, then
-   `stop_stream()`.
+It checks, in order: SSH; `setup()` (pushes all four PS1s, registers tasks);
+`ista_elevation("status")`; `read_doc()`; `read_state()` (text + frame in one call);
+`screenshot()`; a `PING` through the input task; `list_controls()`; `list_sessions()`.
+Each step prints PASS/FAIL and it keeps going on failure.
 
-**Must be tested live (can't be verified off-Windows):**
+**Then, to make clicks land (one-time):** `ista_elevation("off")` and restart ISTA
+normally (not "run as administrator"). Flip back with `ista_elevation("on")` before a
+programming/coding session. While ISTA runs elevated, `list_controls()` still works
+(UIA reads cross the integrity boundary) but `click_control()`/`click()` are discarded
+by UIPI - `read_state()`'s status line warns about exactly this.
 
-- The GDI+ JPEG encode + optional scale in `grab.ps1` (System.Drawing is Windows-only;
-  the control-flow/config/loop logic *was* verified on PowerShell Core). Confirm actual
-  `live.jpg`/`screen.jpg` sizes and that ISTA text is legible at the chosen `quality`.
-- That `IstaGrabLoop` runs in the **interactive** session (same `/it` trick as `IstaGrab`)
-  and that `live.jpg` updates continuously without pinning CPU while ISTA runs.
-- The atomic temp-then-rename vs. a concurrent `scp` read (the `scp` side retries once;
-  confirm no torn frames in practice).
-
-**Heads-up - path/task naming.** This repo standardises on `C:\ista-mcp\` and tasks
-`IstaGrab` / `IstaGrabLoop` (what `server.py` expects). If the live laptop was set up
-by hand with different names/paths (e.g. `C:\ISTA-setup\live-screen.png` / a `GrabScreen`
-task), re-running `setup()` brings it onto the canonical layout. If you'd rather keep the
-existing live layout, change `REMOTE_DIR` in `server.py` to match instead. Either way,
-`server.py` and the registered tasks must agree.
-
-**Revert:** the previous `grab.ps1` produced `C:\ista-mcp\screen.png`; `screenshot()`
-still falls back to `screen.png` if `screen.jpg` isn't present, so an un-upgraded laptop
-keeps working. To fully roll back, `git checkout` the old `grab.ps1` + `server.py` and
-re-run `setup()`.
+**Must be verified live (can't be tested off-Windows):** `tempWebView.html` freshness
+as you navigate ISTA views (does it re-render per view or only for document views?);
+UIA tree contents for ISTA's WPF controls (are test-plan buttons named?); the elevation
+heuristic; JPEG sizes/legibility; `IstaGrabLoop` CPU while ISTA runs.
 
 ## Roadmap
 
 - [x] Read-only core: screenshot, logs, sessions, shell (proven over SSH)
 - [x] Fast capture: compressed JPEG + continuous-loop `latest_frame()` + SSH multiplexing (near-live over a hotspot)
 - [x] Opt-in coordinate input: click / type / key
-- [ ] **UI Automation input** - click ISTA controls by name/AutomationId instead of x/y
-      (robust against layout shifts; the right long-term way to drive a WPF app)
-- [ ] `read_faults()` - parse ISTA's fault-memory export into structured JSON
-- [ ] A guided "diagnose this fault" prompt that chains screenshot -> read -> reason
-- [ ] Session recorder: log every screenshot + action as a repeatable diagnostic script
+- [x] **Text-first reads** - `read_doc()`/`read_state()` parse ISTA's own rendered HTML
+      (`tempWebView.html`): full text, one round-trip, no OCR *(needs live verify)*
+- [x] **UI Automation input** - `list_controls()` + `click_control(name)` drive ISTA's
+      WPF controls by name instead of x/y *(needs live verify)*
+- [x] Elevation management - `ista_elevation()` toggles the RUNASADMIN layer that
+      decides whether injected input lands *(needs live verify)*
+- [ ] `read_faults()` - fault memory as structured data (find ISTA's export/session
+      files rather than scraping the UI; candidates under `C:\ProgramData\BMW\ISPI`)
+- [ ] A guided "diagnose this fault" prompt that chains read_state -> reason -> next step
+- [ ] Session recorder: log every read + action as a repeatable diagnostic script
 
 ## Status
 
-The SSH/screenshot/log primitives are proven in practice. First run needs one `setup()`
-call to install the laptop-side helpers. UI-Automation input and structured fault parsing
-are the next milestones.
+The SSH/capture/log primitives are proven in practice. The v2 text-first layer
+(`state.ps1`, UIA input, elevation control) is built and syntax-checked but **not yet
+run against the live laptop** - `scripts/smoke.py --deploy` is the one-command
+deploy-and-verify for the next time the garage laptop is online.

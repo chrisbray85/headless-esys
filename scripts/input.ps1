@@ -1,19 +1,33 @@
 # Reads one action from C:\ista-mcp\action.txt and performs it in the interactive
 # desktop session, logging to C:\ista-mcp\input.log. Actions:
-#   CLICK x y   - left-click at screen pixel coords (relative to the grab.ps1 screenshot)
-#   SCROLL n    - mouse wheel (WHEEL_DELTA units; negative = down)
-#   TYPE text   - type into the focused field
-#   KEY  ENTER  - ENTER / TAB / ESC
-#   PING        - no-op, just logs (used to confirm the task->script path works)
-# Uses SendInput with ABSOLUTE normalised coords (0-65535 across the primary screen),
-# which is DPI-independent and matches grab.ps1's PrimaryScreen.Bounds capture.
+#   CLICK x y     - left-click at screen pixel coords (relative to the grab.ps1 screenshot)
+#   SCROLL n      - mouse wheel (WHEEL_DELTA units; negative = down)
+#   TYPE text     - type into the focused field
+#   KEY  ENTER    - ENTER / TAB / ESC
+#   UIA  name     - find a control in the ISTA window by name (exact > prefix >
+#                   substring, case-insensitive) via UIAutomation and act on it:
+#                   Invoke > Select > Toggle > Expand, falling back to a physical
+#                   click at its centre. Robust against layout shifts, unlike CLICK.
+#   UIALIST [f]   - dump ISTA's actionable controls (buttons, tabs, list/tree items,
+#                   links, fields) to C:\ista-mcp\uia.txt, optionally name-filtered.
+#                   Read-only - gives the model a menu of real names to UIA-click.
+#   PING          - no-op, just logs (used to confirm the task->script path works)
+# UIA/UIALIST outcomes are written to C:\ista-mcp\uia.txt for the Mac to pull.
+# NOTE: if ISTA runs ELEVATED, UIPI blocks Invoke/clicks (UIALIST still works).
+# Fix: elev.ps1 -Mode off, then restart ISTA.
+# Coordinate clicks use SendInput with ABSOLUTE normalised coords (0-65535), which is
+# DPI-independent and matches grab.ps1's PrimaryScreen.Bounds capture.
 $ErrorActionPreference = "Stop"
 $log = "C:\ista-mcp\input.log"
+$uiaOut = "C:\ista-mcp\uia.txt"
+function Log($m) { "$(Get-Date -Format s) $m" | Add-Content $log }
+
 try {
   $a = (Get-Content "C:\ista-mcp\action.txt" -Raw).Trim()
-  "$(Get-Date -Format s) IN [$a]" | Add-Content $log
+  Log "IN [$a]"
   $parts = $a -split '\s+', 2
   $verb = $parts[0]
+  $arg = if ($parts.Count -gt 1) { $parts[1] } else { "" }
 
   Add-Type -AssemblyName System.Windows.Forms
   $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -39,13 +53,100 @@ public class Inp {
   public static uint Wheel(int amt){ IN[] a=new IN[1]; a[0].type=0; a[0].mi.data=(uint)amt; a[0].mi.flags=WH; return SendInput(1,a,Marshal.SizeOf(typeof(IN))); }
 }
 "@
+
+  # ---- UIAutomation helpers (UIA / UIALIST verbs) ----
+  $ACTIONABLE = @("Button","TabItem","ListItem","TreeItem","Hyperlink","MenuItem",
+                  "ComboBox","CheckBox","RadioButton","Edit","SplitButton","DataItem")
+
+  function Get-IstaElements {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $procs = @(Get-Process ISTAGUI -ErrorAction SilentlyContinue)
+    if (-not $procs) { throw "ISTAGUI.exe is not running" }
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $wins = @()
+    $tops = $root.FindAll([System.Windows.Automation.TreeScope]::Children,
+                          [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($w in $tops) { if ($procs.Id -contains $w.Current.ProcessId) { $wins += $w } }
+    if (-not $wins) { throw "no top-level ISTA window found via UIA" }
+    $conds = foreach ($t in $ACTIONABLE) {
+      New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::$t)
+    }
+    $or = New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$conds)
+    $els = @()
+    foreach ($w in $wins) {
+      $found = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $or)
+      foreach ($e in $found) { $els += $e }
+    }
+    return $els
+  }
+
+  function Describe($el) {
+    $c = $el.Current
+    $t = $c.ControlType.ProgrammaticName -replace '^ControlType\.', ''
+    $r = $c.BoundingRectangle
+    $rect = if ($r.Width -gt 0) { "{0},{1},{2},{3}" -f [int]$r.X, [int]$r.Y, [int]$r.Width, [int]$r.Height } else { "offscreen" }
+    "{0}`t{1}`t{2}`t{3}`t{4}" -f $t, $c.Name, $c.AutomationId, $rect, $c.IsEnabled
+  }
+
+  function Do-Action($el) {
+    $c = $el.Current
+    foreach ($try in @(
+      @{ P = [System.Windows.Automation.InvokePattern]::Pattern;         A = { param($p) $p.Invoke() };  N = "invoked" },
+      @{ P = [System.Windows.Automation.SelectionItemPattern]::Pattern;  A = { param($p) $p.Select() };  N = "selected" },
+      @{ P = [System.Windows.Automation.TogglePattern]::Pattern;         A = { param($p) $p.Toggle() };  N = "toggled" },
+      @{ P = [System.Windows.Automation.ExpandCollapsePattern]::Pattern; A = { param($p) $p.Expand() };  N = "expanded" }
+    )) {
+      try { $pat = $el.GetCurrentPattern($try.P); & $try.A $pat; return $try.N } catch {}
+    }
+    try { $pt = $el.GetClickablePoint(); $x = [int]$pt.X; $y = [int]$pt.Y }
+    catch { $r = $c.BoundingRectangle; $x = [int]($r.X + $r.Width / 2); $y = [int]($r.Y + $r.Height / 2) }
+    $n = [Inp]::Click($x, $y, $W, $H)
+    return "clicked centre $x,$y sent=$n"
+  }
+
   switch ($verb) {
-    "PING"   { "$(Get-Date -Format s) PING ok screen=${W}x${H}" | Add-Content $log }
-    "CLICK"  { $xy = $parts[1] -split '\s+'; $r = [Inp]::Click([int]$xy[0], [int]$xy[1], $W, $H); "$(Get-Date -Format s) CLICK $($parts[1]) screen=${W}x${H} sent=$r" | Add-Content $log }
-    "SCROLL" { $r = [Inp]::Wheel([int]$parts[1]); "$(Get-Date -Format s) SCROLL $($parts[1]) sent=$r" | Add-Content $log }
-    "TYPE"   { [System.Windows.Forms.SendKeys]::SendWait($parts[1]); "$(Get-Date -Format s) TYPE done" | Add-Content $log }
-    "KEY"    { $k = switch ($parts[1].ToUpper()) { "ENTER" {"{ENTER}"} "TAB" {"{TAB}"} "ESC" {"{ESC}"} default {$parts[1]} }; [System.Windows.Forms.SendKeys]::SendWait($k); "$(Get-Date -Format s) KEY $k" | Add-Content $log }
+    "PING"   { Log "PING ok screen=${W}x${H}" }
+    "CLICK"  { $xy = $arg -split '\s+'; $r = [Inp]::Click([int]$xy[0], [int]$xy[1], $W, $H); Log "CLICK $arg screen=${W}x${H} sent=$r" }
+    "SCROLL" { $r = [Inp]::Wheel([int]$arg); Log "SCROLL $arg sent=$r" }
+    "TYPE"   { [System.Windows.Forms.SendKeys]::SendWait($arg); Log "TYPE done" }
+    "KEY"    { $k = switch ($arg.ToUpper()) { "ENTER" {"{ENTER}"} "TAB" {"{TAB}"} "ESC" {"{ESC}"} default {$arg} }; [System.Windows.Forms.SendKeys]::SendWait($k); Log "KEY $k" }
+    "UIALIST" {
+      $els = Get-IstaElements
+      $lines = foreach ($el in $els) {
+        $d = Describe $el
+        if (-not $arg -or $d -like "*$arg*") { $d }
+      }
+      $lines = @($lines | Where-Object { $_ -notmatch "^\S+`t`t`t" })  # drop no-name no-id noise
+      $head = "# ControlType`tName`tAutomationId`tX,Y,W,H`tEnabled  ({0} shown)" -f $lines.Count
+      Set-Content -LiteralPath $uiaOut -Value (@($head) + ($lines | Select-Object -First 400))
+      Log "UIALIST '$arg' -> $($lines.Count) controls"
+    }
+    "UIA" {
+      if (-not $arg) { throw "UIA needs a control name" }
+      $els = Get-IstaElements
+      $usable = @($els | Where-Object { $_.Current.Name })
+      $exact  = @($usable | Where-Object { $_.Current.Name -ieq $arg })
+      $prefix = @($usable | Where-Object { $_.Current.Name -ilike "$arg*" })
+      $contain= @($usable | Where-Object { $_.Current.Name -ilike "*$arg*" })
+      $pool = if ($exact) { $exact } elseif ($prefix) { $prefix } else { $contain }
+      $pool = @($pool | Sort-Object { -not $_.Current.IsEnabled }, { $_.Current.IsOffscreen })
+      if (-not $pool) {
+        Set-Content -LiteralPath $uiaOut -Value "NOTFOUND: no control matching '$arg' (try UIALIST)"
+        Log "UIA '$arg' -> not found"
+      } else {
+        $el = $pool[0]
+        $how = Do-Action $el
+        $msg = "OK: '$($el.Current.Name)' [$(($el.Current.ControlType.ProgrammaticName -replace '^ControlType\.',''))] -> $how"
+        if ($pool.Count -gt 1) { $msg += " (of $($pool.Count) matches)" }
+        Set-Content -LiteralPath $uiaOut -Value $msg
+        Log "UIA '$arg' -> $how"
+      }
+    }
   }
 } catch {
-  "$(Get-Date -Format s) ERROR $($_.Exception.Message)" | Add-Content $log
+  $err = "ERROR $($_.Exception.Message)"
+  Log $err
+  try { Set-Content -LiteralPath $uiaOut -Value $err } catch {}
 }

@@ -1,0 +1,76 @@
+# elev.ps1 - manage the RUNASADMIN compatibility layer on ISTAGUI.exe. Runs over
+# plain SSH (HKCU only, no admin token needed).
+#
+# WHY: ISTA set to always-run-as-admin means Windows UIPI silently discards every
+# injected click/keystroke from our medium-integrity input task. Screenshots still
+# work, so it *looks* like the click landed. For DIAGNOSIS run ISTA non-elevated
+# (input works); flip it back on for PROGRAMMING/CODING sessions that need admin.
+#
+#   -Mode status : show the layer flag + whether ISTA is currently running elevated
+#   -Mode off    : strip RUNASADMIN from the ISTAGUI layer value (keeps other flags)
+#   -Mode on     : re-add RUNASADMIN (finds ISTAGUI.exe if no layer entry exists)
+#
+# A mode change only affects the NEXT ISTA launch - restart ISTA to apply.
+param([ValidateSet("status","off","on")][string]$Mode = "status")
+$ErrorActionPreference = "SilentlyContinue"
+$key = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+
+function IstaEntries {
+  $l = Get-ItemProperty $key -ErrorAction SilentlyContinue
+  if (-not $l) { return @() }
+  @($l.PSObject.Properties | Where-Object { $_.Name -like "*ISTAGUI*" })
+}
+
+function ProcState {
+  $p = Get-Process ISTAGUI -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $p) { return "ISTA process: not running" }
+  try { $null = $p.Handle; return "ISTA process: running, NOT elevated (input will land)" }
+  catch { return "ISTA process: running ELEVATED (UIPI blocks input - restart ISTA after 'off')" }
+}
+
+switch ($Mode) {
+  "status" {
+    $e = IstaEntries
+    if (-not $e) { "layer: no ISTAGUI entry (next launch non-elevated)" }
+    foreach ($p in $e) { "layer: $($p.Name) = $($p.Value)" }
+    ProcState
+  }
+  "off" {
+    $changed = $false
+    foreach ($p in IstaEntries) {
+      if ("$($p.Value)" -notmatch "RUNASADMIN") { continue }
+      $rest = ("$($p.Value)" -replace "RUNASADMIN", "" -replace "\s+", " ").Trim()
+      if ($rest -eq "~" -or $rest -eq "") {
+        Remove-ItemProperty -Path $key -Name $p.Name -Force
+        "removed layer entry: $($p.Name)"
+      } else {
+        Set-ItemProperty -Path $key -Name $p.Name -Value $rest -Force
+        "stripped RUNASADMIN: $($p.Name) = $rest"
+      }
+      $changed = $true
+    }
+    if (-not $changed) { "nothing to do: no RUNASADMIN flag on ISTAGUI" }
+    else { "RESTART ISTA to apply (close ISTAGUI, relaunch normally - NOT 'run as administrator')" }
+    ProcState
+  }
+  "on" {
+    $e = IstaEntries | Select-Object -First 1
+    $path = $null
+    if ($e) { $path = $e.Name }
+    if (-not $path) {
+      $p = Get-Process ISTAGUI -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($p -and $p.Path) { $path = $p.Path }
+    }
+    if (-not $path) {
+      $hit = Get-ChildItem "C:\BMW" -Recurse -Filter "ISTAGUI.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($hit) { $path = $hit.FullName }
+    }
+    if (-not $path) { "FAILED: cannot locate ISTAGUI.exe (no layer entry, not running, not under C:\BMW)"; break }
+    $val = if ($e -and "$($e.Value)" -match "\S") { ("$($e.Value)" -replace "RUNASADMIN","").Trim() + " RUNASADMIN" } else { "~ RUNASADMIN" }
+    $val = ($val -replace "\s+", " ").Trim()
+    if ($val -notmatch "^~") { $val = "~ $val" }
+    Set-ItemProperty -Path $key -Name $path -Value $val -Force
+    "set layer: $path = $val"
+    "RESTART ISTA to apply (next launch runs elevated - for programming/coding)"
+  }
+}

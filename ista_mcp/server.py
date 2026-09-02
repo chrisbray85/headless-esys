@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
 """ISTA-MCP - drive a remote BMW ISTA+ garage laptop from an MCP client.
 
-The read-only tools (screenshot, latest_frame, read_log, list_sessions, run) are the
-safe core and are built on primitives proven by hand over SSH + Tailscale. The input
-tools (click, type_text, press_key, scroll) are OPT-IN via ISTA_MCP_ALLOW_INPUT=1.
+READ ORDER (fastest first - this is the redesign's core rule):
+  1. read_state() / read_doc() - ISTA renders its displayed procedure / fault /
+     functional-description content as HTML to %LOCALAPPDATA%\\Temp\\tempWebView.html.
+     Reading THAT gives the full text in one round-trip: no OCR, no edge clipping,
+     no screenshot loop. read_state() bundles the doc text + one screen frame +
+     ISTA process status into a single SSH call.
+  2. read_log() / list_sessions() - ISTA + PsdzWebservice logs as text.
+  3. screenshot() / latest_frame() - ONLY for what is genuinely pixels: live graphs
+     (actuation-test traces), which tab is active, dialog state.
+
+INPUT: click controls BY NAME with click_control() (UIAutomation: Invoke/Select,
+coordinate click only as fallback) - list_controls() shows the real names. Raw
+coordinate click/type/scroll remain as fallbacks. All input is OPT-IN via
+ISTA_MCP_ALLOW_INPUT=1, and input only lands if ISTA runs NON-elevated: Windows
+UIPI silently discards injected input into an elevated window. Check/fix with
+ista_elevation() - diagnosis does not need admin; only programming/coding does.
 
 HARD RULE: never enable input during a flash / coding / actuator write on a live
 car. Observe freely; any action that changes vehicle state stays human-confirmed.
@@ -23,12 +36,15 @@ All ssh/scp calls reuse a single multiplexed SSH connection (ControlMaster), so 
 per-frame TCP+SSH handshake cost - which dominates over a high-latency hotspot - is
 paid once, not on every frame.
 """
+import base64
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import time
+from html.parser import HTMLParser
 
 from mcp.server.mcpserver import Image, MCPServer
 
@@ -122,6 +138,114 @@ def _wait_fresh(win_path: str, before: int, timeout: float = 8.0,
     return False
 
 
+class _HtmlText(HTMLParser):
+    """Minimal HTML -> readable text: block tags become newlines, table cells become
+    tab-separated columns, script/style content is dropped. Good enough for ISTA's
+    rendered procedure/fault docs; pass raw=True to read_doc() if structure matters."""
+    _SKIP = {"script", "style", "head", "title"}
+    _BLOCK = {"p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table",
+              "section", "article", "ul", "ol", "dl", "dt", "dd", "pre", "blockquote"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip += 1
+        elif tag == "br" or tag in self._BLOCK:
+            self.out.append("\n")
+        elif tag in ("td", "th"):
+            self.out.append("\t")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP and self._skip:
+            self._skip -= 1
+        elif tag in self._BLOCK:
+            self.out.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.out.append(data)
+
+
+def _html_to_text(markup: str) -> str:
+    p = _HtmlText()
+    try:
+        p.feed(markup)
+        p.close()
+    except Exception:
+        pass  # keep whatever was parsed before the hiccup
+    text = "".join(p.out)
+    text = "\n".join(re.sub(r"[ \t]+", " ", ln).strip() for ln in text.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _state(no_frame: bool = False, fresh_ms: int = 2500) -> dict:
+    """ONE ssh round-trip: run state.ps1 on the laptop, get back doc HTML + frame +
+    ISTA status as a single JSON blob. This is the latency fix - the old loop paid a
+    trigger + sleep + scp per read; this pays one multiplexed exec."""
+    cmd = (f"powershell -NoProfile -ExecutionPolicy Bypass -File {REMOTE_WIN}\\state.ps1 "
+           f"-FreshMs {int(fresh_ms)}")
+    if no_frame:
+        cmd += " -NoFrame"
+    out = _ssh(cmd, timeout=45)
+    try:
+        return json.loads(out[out.index("{"):out.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError):
+        raise RuntimeError(
+            "state.ps1 gave no JSON - run setup() to deploy it. Raw output:\n"
+            + out[:500])
+
+
+def _status_line(st: dict) -> str:
+    ista = "not running" if not st.get("ista_running") else (
+        "running ELEVATED - input blocked, use ista_elevation('off') + restart ISTA"
+        if st.get("ista_elevated") else "running, non-elevated (input OK)")
+    layer = " [RUNASADMIN layer set - next launch elevated]" if st.get("runasadmin_layer") else ""
+    doc_age = st.get("html_ms")
+    doc = f"doc text {doc_age / 1000:.0f}s old" if doc_age is not None else "no doc html"
+    return f"ISTA {ista}{layer} | {doc} | frame: {st.get('frame_src')}"
+
+
+@mcp.tool()
+def read_state(with_frame: bool = True, fresh_ms: int = 2500) -> list:
+    """THE primary read: one round-trip returning ISTA's currently displayed document
+    text (parsed from ISTA's own rendered HTML - full text, no OCR, no clipping) plus
+    one screen frame and ISTA process status. Start every look-at-ISTA step here;
+    fall back to screenshot() only for purely graphical detail (live graphs).
+
+    with_frame=False skips the image (fastest, text only). fresh_ms: a stream frame
+    younger than this is served as-is; otherwise a fresh one-shot is captured.
+    The status line also warns if ISTA is running elevated (= clicks won't land)."""
+    st = _state(no_frame=not with_frame, fresh_ms=fresh_ms)
+    text = _status_line(st)
+    if st.get("html"):
+        text += "\n\n--- ISTA displayed document (tempWebView.html) ---\n"
+        text += _html_to_text(st["html"])
+    else:
+        text += "\n\n(no tempWebView.html - ISTA has not rendered a document view yet)"
+    parts: list = [text]
+    if st.get("frame_b64"):
+        parts.append(Image(data=base64.b64decode(st["frame_b64"]), format="jpeg"))
+    return parts
+
+
+@mcp.tool()
+def read_doc(raw: bool = False) -> str:
+    """Read the full text of whatever document/procedure/fault description ISTA is
+    displaying right now, from ISTA's own rendered HTML (tempWebView.html). Instant
+    and complete - long lines are NOT clipped at the screen edge like screenshots.
+    raw=True returns the untouched HTML (tables/attributes) instead of parsed text."""
+    st = _state(no_frame=True)
+    if not st.get("html"):
+        return (f"{_status_line(st)}\n(no tempWebView.html yet - open a document, "
+                "test plan or functional description in ISTA first)")
+    body = st["html"] if raw else _html_to_text(st["html"])
+    return f"{_status_line(st)}\n\n{body}"
+
+
 @mcp.tool()
 def setup() -> str:
     """One-time install: copy the helper scripts to the garage laptop and register
@@ -130,7 +254,7 @@ def setup() -> str:
     IstaGrabLoop (continuous near-live stream) and IstaInput. Run this once before
     first use, and again after updating grab.ps1 / input.ps1."""
     _ssh(f'if not exist "{REMOTE_WIN}" mkdir "{REMOTE_WIN}"')
-    for f in ("grab.ps1", "input.ps1"):
+    for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1"):
         _scp(str(SCRIPTS / f), f"{GARAGE}:{REMOTE_DIR}/{f}")
     ps = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
           f"-File {REMOTE_WIN}\\grab.ps1")
@@ -147,15 +271,20 @@ def setup() -> str:
     ips = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
            f"-File {REMOTE_WIN}\\input.ps1")
     _ssh(f'schtasks /create /tn IstaInput /tr "{ips}" /sc once /st 23:59 /it /f')
-    return ("Installed grab.ps1 + input.ps1 and registered IstaGrab (JPEG one-shot), "
-            "IstaGrabPng (PNG fallback), IstaGrabLoop (stream) and IstaInput. "
-            "screenshot(), start_stream()/latest_frame() and input are ready.")
+    return ("Installed grab.ps1 + input.ps1 + state.ps1 + elev.ps1 and registered "
+            "IstaGrab (JPEG one-shot), IstaGrabPng (PNG fallback), IstaGrabLoop "
+            "(stream) and IstaInput. read_state()/read_doc(), screenshot(), "
+            "list_controls()/click_control() and ista_elevation() are ready. "
+            "Check ista_elevation() next - clicks only land when ISTA is non-elevated.")
 
 
 @mcp.tool()
 def screenshot(fmt: str = "jpg") -> Image:
-    """Capture the garage laptop's screen right now (one-shot) - i.e. whatever ISTA
-    is showing. Use it to read fault memory, test-plan results, graphs and dialogs.
+    """Capture the garage laptop's screen right now (one-shot). Reach for this ONLY
+    for genuinely graphical content: live graphs (actuation-test traces), which tab
+    is highlighted, dialog state. For anything textual - fault descriptions, test
+    plans, procedures - read_state()/read_doc() return the full text faster with no
+    OCR and no edge clipping.
 
     fmt="jpg" (default) returns a compressed JPEG - a few tens of KB, best over a
     hotspot. fmt="png" returns the lossless ~600 KB frame when you need pixel detail.
@@ -284,18 +413,77 @@ def run(command: str) -> str:
     return _ssh(command, timeout=60) or "(no output)"
 
 
-# --- opt-in input tools: gated, and never for use during a flash/coding write ---
+# --- input + UIA tools. Real input is gated (ISTA_MCP_ALLOW_INPUT=1) and never
+# --- for use during a flash/coding write; UIALIST is read-only and ungated.
+
+def _action(line: str, want_result: bool = False, wait: float = 12.0) -> str:
+    """Ship one action line to the laptop and trigger the IstaInput task (it runs in
+    the interactive desktop session). For UIA verbs the script writes its outcome to
+    uia.txt; want_result waits for that file to change and returns its content."""
+    tmp = tempfile.mktemp(suffix=".txt")
+    pathlib.Path(tmp).write_text(line + "\n")
+    before = _remote_ticks(f"{REMOTE_WIN}\\uia.txt") if want_result else 0
+    _scp(tmp, f"{GARAGE}:{REMOTE_DIR}/action.txt")
+    _ssh("schtasks /run /tn IstaInput", timeout=20)
+    if not want_result:
+        time.sleep(1.5)
+        return f"sent: {line}"
+    if not _wait_fresh(f"{REMOTE_WIN}\\uia.txt", before, timeout=wait, initial=1.2):
+        return (f"sent: {line} - but no result appeared in uia.txt within {wait}s "
+                "(big UIA trees can be slow; read it with "
+                "run('type C:\\\\ista-mcp\\\\uia.txt'))")
+    data = _pull("uia.txt")
+    return data.decode("utf-8", "replace").strip() if data else "(uia.txt empty)"
+
 
 def _send(line: str) -> str:
     if not ALLOW_INPUT:
         return ("Input is disabled. Set ISTA_MCP_ALLOW_INPUT=1 to enable it, and "
                 "NEVER enable it during a flash / coding / actuator write.")
-    tmp = tempfile.mktemp(suffix=".txt")
-    pathlib.Path(tmp).write_text(line + "\n")
-    _scp(tmp, f"{GARAGE}:{REMOTE_DIR}/action.txt")
-    _ssh("schtasks /run /tn IstaInput", timeout=20)
-    time.sleep(1.5)
-    return f"sent: {line}"
+    return _action(line)
+
+
+@mcp.tool()
+def list_controls(name_filter: str = "") -> str:
+    """List ISTA's actionable UI controls (buttons, tabs, list/tree items, links,
+    fields) by their real UIAutomation names - read-only, works even while ISTA runs
+    elevated. Use this to find the exact name for click_control() instead of hunting
+    pixel coordinates on a screenshot. Optional name_filter narrows the list.
+    Columns: ControlType, Name, AutomationId, X,Y,W,H, Enabled."""
+    line = "UIALIST" + (f" {name_filter}" if name_filter else "")
+    return _action(line, want_result=True, wait=20.0)
+
+
+@mcp.tool()
+def click_control(name: str) -> str:
+    """(opt-in) Act on an ISTA control BY NAME via UIAutomation - the robust
+    alternative to coordinate click(). Matching is case-insensitive: exact, then
+    prefix, then substring (list_controls() shows the real names). Uses the
+    control's own Invoke/Select/Toggle/Expand pattern, falling back to a physical
+    click at its centre. Returns what happened.
+
+    Only lands if ISTA runs NON-elevated - check ista_elevation() if nothing
+    responds. Do NOT use during a flash/coding/actuator write."""
+    if not ALLOW_INPUT:
+        return ("Input is disabled. Set ISTA_MCP_ALLOW_INPUT=1 to enable it, and "
+                "NEVER enable it during a flash / coding / actuator write.")
+    return _action(f"UIA {name}", want_result=True)
+
+
+@mcp.tool()
+def ista_elevation(mode: str = "status") -> str:
+    """Manage WHY clicks do or don't land. ISTA set to always-run-as-admin means
+    Windows UIPI silently discards our injected input (screenshots still work, so
+    failures look like ignored clicks). Diagnosis needs no admin; programming does.
+
+    mode="status" - show the RUNASADMIN layer flag + whether the running ISTA is
+                    elevated. mode="off" - strip the flag so the NEXT ISTA launch
+                    accepts input (restart ISTA to apply). mode="on" - restore
+                    always-as-admin for a programming/coding session."""
+    if mode not in ("status", "off", "on"):
+        return "mode must be status, off or on"
+    return _ssh(f"powershell -NoProfile -ExecutionPolicy Bypass -File "
+                f"{REMOTE_WIN}\\elev.ps1 -Mode {mode}", timeout=30) or "(no output)"
 
 
 @mcp.tool()
