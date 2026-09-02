@@ -286,7 +286,11 @@ def diagnose() -> str:
     if d.get("defender_excluded") is False:
         problems.append("Defender exclusion for C:\\ista-mcp is MISSING - grab/input.ps1 "
                         "get silently quarantined as malicious. Re-run setup().")
-    if d.get("scheduler_ok") is False:
+    if d.get("on_battery") and d.get("scheduler_ok") is False:
+        problems.append("Laptop is ON BATTERY and the scheduler probe didn't run - tasks "
+                        "registered with the default 'don't start on batteries' condition "
+                        "sit in Queued. Re-run setup() (it clears that condition) or plug in.")
+    elif d.get("scheduler_ok") is False:
         msg = ("Task Scheduler is NOT executing tasks (a throwaway SYSTEM task didn't "
                "run) - capture/input both ride it, so both are dead.")
         if d.get("pending_reboot"):
@@ -309,7 +313,7 @@ def diagnose() -> str:
     doc = d.get("doc_age_ms")
     stream = d.get("live_stream_ms")
     facts = (f"desktop={d.get('desktop_session')} defender_excluded={d.get('defender_excluded')} "
-             f"scheduler_ok={d.get('scheduler_ok')} pending_reboot={d.get('pending_reboot')} "
+             f"scheduler_ok={d.get('scheduler_ok')} on_battery={d.get('on_battery')} pending_reboot={d.get('pending_reboot')} "
              f"ista={d.get('ista_integrity') if d.get('ista_running') else 'not running'} "
              f"doc={'%.0fs' % (doc / 1000) if doc is not None else 'none'} "
              f"stream={'%.0fs' % (stream / 1000) if stream is not None else 'off'}\n"
@@ -358,6 +362,14 @@ def setup() -> str:
     # need elevation, only the interactive session.
     inp = _ssh(f'schtasks /create /tn IstaInput /tr "{ips}" /sc once /st 23:59 '
                f'/it /rl HIGHEST /f')
+    # schtasks /create leaves the default "don't start on batteries" condition set.
+    # The garage laptop runs unplugged at the car, and every task then just sits
+    # in Queued - capture and input both silently die (2 Sep 2026). Clear it.
+    names = ",".join(f"'{t}'" for t in [*tasks, "IstaInput"])
+    _ssh("powershell -NoProfile -Command \"$s=New-ScheduledTaskSettingsSet "
+         "-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+         "-ExecutionTimeLimit (New-TimeSpan -Hours 72); "
+         f"foreach($t in {names}){{Set-ScheduledTask -TaskName $t -Settings $s | Out-Null}}\"")
     return (f"Defender exclusion: {defender}. Installed grab.ps1 + input.ps1 + "
             "state.ps1 + elev.ps1 + diagnose.ps1 and registered IstaGrab (JPEG "
             "one-shot), IstaGrabPng (PNG fallback), IstaGrabLoop (stream) and "

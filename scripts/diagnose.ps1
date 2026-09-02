@@ -34,10 +34,17 @@ $schedOk = $false
 $mk = "$dir\diagmark.txt"
 Remove-Item $mk -Force -EA SilentlyContinue
 schtasks /create /tn IstaDiag /tr "cmd /c echo ok > $mk" /sc once /st 23:59 /ru SYSTEM /f 2>&1 | Out-Null
+# Clear the default "don't start on batteries" condition or this probe (and every
+# other task) sits in Queued whenever the laptop is unplugged at the car.
+try { Set-ScheduledTask -TaskName IstaDiag -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) -EA Stop | Out-Null } catch {}
 schtasks /run /tn IstaDiag 2>&1 | Out-Null
 foreach ($n in 1..14) { Start-Sleep -Milliseconds 500; if (Test-Path $mk) { $schedOk = $true; break } }
 schtasks /delete /tn IstaDiag /f 2>&1 | Out-Null
 Remove-Item $mk -Force -EA SilentlyContinue
+
+# --- on battery? (BatteryStatus 1 = discharging) ---
+$bat = Get-CimInstance Win32_Battery -EA SilentlyContinue | Select-Object -First 1
+$onBattery = [bool]($bat -and $bat.BatteryStatus -eq 1)
 
 # --- ISTA process + true integrity level ---
 $proc = Get-Process ISTAGUI -EA SilentlyContinue | Select-Object -First 1
@@ -75,6 +82,7 @@ $liveAge = if ($live) { [int64]((Get-Date).ToUniversalTime() - $live.LastWriteTi
   sessions          = $sessions
   defender_excluded = $excluded
   scheduler_ok      = $schedOk
+  on_battery        = $onBattery
   pending_reboot    = $pendingReboot
   pending_files     = $pendCount
   ista_running      = $istaRun
