@@ -257,6 +257,67 @@ def read_doc(raw: bool = False) -> str:
 
 
 @mcp.tool()
+def diagnose() -> str:
+    """Pinpoint WHY capture/input is (or isn't) working, in one call. Run this first
+    whenever screenshot() returns nothing or clicks don't land - it turns a silent
+    failure into a named cause. Checks: a desktop is logged in; the Defender exclusion
+    is present (missing => scripts silently quarantined); Windows Task Scheduler is
+    actually executing tasks (a pending-reboot limbo can wedge it so /run 'succeeds'
+    but nothing runs - the usual reason capture dies after an install); ISTA's process
+    + real integrity level (elevated => injected input is blocked by UIPI); and how
+    fresh the doc HTML / live stream are."""
+    out = _ssh(f"powershell -NoProfile -ExecutionPolicy Bypass -File "
+               f"{REMOTE_WIN}\\diagnose.ps1", timeout=45)
+    try:
+        d = json.loads(out[out.index("{"):out.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError):
+        return ("diagnose.ps1 gave no JSON - run setup() to deploy it. Raw:\n" + out[:600])
+    # Guard against a parse error that yields an object without our fields: don't
+    # fabricate "everything is broken" from missing keys - say the check didn't run.
+    if "scheduler_ok" not in d:
+        return ("diagnose.ps1 ran but returned no usable data (missing expected fields) "
+                "- it likely errored on the laptop. Re-run setup() to redeploy it. Raw:\n"
+                + out[:600])
+
+    problems, notes = [], []
+    if d.get("desktop_session") is False:
+        problems.append("NO desktop session logged in - /it capture tasks can't reach a "
+                        "desktop. Log in at the console (auto-login should handle this).")
+    if d.get("defender_excluded") is False:
+        problems.append("Defender exclusion for C:\\ista-mcp is MISSING - grab/input.ps1 "
+                        "get silently quarantined as malicious. Re-run setup().")
+    if d.get("scheduler_ok") is False:
+        msg = ("Task Scheduler is NOT executing tasks (a throwaway SYSTEM task didn't "
+               "run) - capture/input both ride it, so both are dead.")
+        if d.get("pending_reboot"):
+            msg += (f" Pending reboot detected (pending_files={d.get('pending_files')}) "
+                    "- REBOOT the laptop to clear it; capture should work after.")
+        else:
+            msg += " No pending-reboot flag; try rebooting the laptop anyway."
+        problems.append(msg)
+    if d.get("ista_running") and d.get("ista_integrity") in ("high", "system"):
+        notes.append("ISTA is ELEVATED - injected clicks are blocked by UIPI. For "
+                     "diagnosis run ista_elevation('off') + restart ISTA; leave elevated "
+                     "for programming/coding.")
+    if not d.get("ista_running"):
+        notes.append("ISTA (ISTAGUI.exe) is not running.")
+
+    verdict = ("All capture/input prerequisites look good." if not problems
+               else "BLOCKERS found:\n  - " + "\n  - ".join(problems))
+    if notes:
+        verdict += "\nNotes:\n  - " + "\n  - ".join(notes)
+    doc = d.get("doc_age_ms")
+    stream = d.get("live_stream_ms")
+    facts = (f"desktop={d.get('desktop_session')} defender_excluded={d.get('defender_excluded')} "
+             f"scheduler_ok={d.get('scheduler_ok')} pending_reboot={d.get('pending_reboot')} "
+             f"ista={d.get('ista_integrity') if d.get('ista_running') else 'not running'} "
+             f"doc={'%.0fs' % (doc / 1000) if doc is not None else 'none'} "
+             f"stream={'%.0fs' % (stream / 1000) if stream is not None else 'off'}\n"
+             f"sessions: {', '.join(d.get('sessions') or []) or '(none parsed)'}")
+    return f"{verdict}\n\n{facts}"
+
+
+@mcp.tool()
 def setup() -> str:
     """One-time install: copy the helper scripts to the garage laptop and register
     the scheduled tasks that let capture and input run in the interactive desktop
@@ -273,7 +334,7 @@ def setup() -> str:
         f'powershell -NoProfile -Command "try {{ Add-MpPreference -ExclusionPath '
         f"'{REMOTE_WIN}' -ErrorAction Stop; 'defender-exclusion-ok' }} catch "
         f"{{ 'defender-exclusion-FAILED: ' + $_.Exception.Message }}\"")
-    for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1"):
+    for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1", "diagnose.ps1"):
         _scp(str(SCRIPTS / f), f"{GARAGE}:{REMOTE_DIR}/{f}")
     ps = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
           f"-File {REMOTE_WIN}\\grab.ps1")
@@ -294,7 +355,8 @@ def setup() -> str:
             "state.ps1 + elev.ps1 and registered IstaGrab (JPEG one-shot), "
             "IstaGrabPng (PNG fallback), IstaGrabLoop (stream) and IstaInput. "
             "read_state()/read_doc(), screenshot(), list_controls()/click_control() "
-            "and ista_elevation() are ready. Note: capture/input run via /it "
+            "and ista_elevation() are ready. If capture ever comes back empty, call "
+            "diagnose() - it names the cause. Note: capture/input run via /it "
             "scheduled tasks in the console session - if screenshots are empty, "
             "make sure a desktop is logged in and unblocked (no installer/UAC modal "
             "holding the session). Check ista_elevation() - clicks only land when "
@@ -343,8 +405,9 @@ def screenshot(fmt: str = "jpg") -> Image:
         data = _pull(name)
         if data:
             return Image(data=data, format=imgfmt)
-    raise RuntimeError("screenshot: no frame produced - is a desktop session logged "
-                       "in, and has setup() been run on this laptop?")
+    raise RuntimeError("screenshot: no frame produced. Call diagnose() to find out why "
+                       "- the usual causes are a wedged Task Scheduler (pending reboot), "
+                       "a missing Defender exclusion, or no desktop logged in.")
 
 
 @mcp.tool()

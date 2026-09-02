@@ -61,7 +61,11 @@ def main():
         return f"{text.splitlines()[0]} | frame_bytes={fb}"
     step("read_state", read_state)
 
-    step("screenshot", lambda: f"{len(server.screenshot('jpg').data)} bytes")
+    if step("screenshot", lambda: f"{len(server.screenshot('jpg').data)} bytes") is None:
+        try:
+            print("  ↳ diagnose: " + server.diagnose().replace("\n", "\n              "))
+        except Exception as e:
+            print(f"  ↳ diagnose failed: {e}")
     step("ping_input", lambda: server._action("PING"))
     step("list_controls", lambda: server.list_controls())
     step("sessions", lambda: server.list_sessions(3))
