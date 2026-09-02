@@ -1,7 +1,8 @@
-# E-Sys glossary (German and BMW terms you will meet)
+# BMW diagnostic glossary (German and BMW terms you will meet)
 
-E-Sys is a BMW engineering tool, so the coding files speak German and BMW acronyms.
-This is what they mean, in the order you meet them.
+ISTA and the underlying BMW data speak German and acronyms. This is what they mean.
+Coding-specific rows are kept because ISTA shows the same names in its vehicle
+tree and reports; this project does not itself do coding.
 
 | Term | Meaning |
 |---|---|

@@ -387,71 +387,6 @@ def setup() -> str:
             "an install = reboot; diagnose() will say so).")
 
 
-BACKUP_ROOT = "C:\\Data\\RealTimeBackup"   # EsysUltra writes FA/SVT/DTC/NCD here per car and day
-
-
-def _ps(script: str, timeout: int = 40) -> str:
-    return _ssh(f'powershell -NoProfile -Command "{script}"', timeout=timeout) or ""
-
-
-@mcp.tool()
-def list_backups(days: int = 1) -> str:
-    """List what EsysUltra's real-time backup holds for the newest car folder: FA,
-    SVT, DTC reads and per-ECU NCD files (1_READ = before, 2_WRITE = written,
-    3_READ = verification). Use it to confirm a before-backup exists prior to a
-    write, and to find the DTC file for read_faults(). Read-only."""
-    out = _ps(
-        f"$r=Get-ChildItem -LiteralPath '{BACKUP_ROOT}' -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1; "
-        f"if(-not $r){{'no RealTimeBackup folder - has EsysUltra read anything yet?'; exit}}; 'car: '+$r.Name; "
-        f"Get-ChildItem -LiteralPath $r.FullName -Recurse -File | Where-Object {{ $_.LastWriteTime -gt (Get-Date).AddDays(-{int(days)}) }} | "
-        f"Sort-Object LastWriteTime | ForEach-Object {{ $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')+'  '+$_.FullName.Substring($r.FullName.Length+1) }}")
-    return out or "(nothing in the last day)"
-
-
-@mcp.tool()
-def read_faults() -> str:
-    """The most recent DTC read as structured text, parsed from the file EsysUltra
-    saves when you press Copy As File in its DTC window (RealTimeBackup/.../DTC/).
-    Returns one line per fault: ECU | code | description, then the modules with no
-    faults. Take a fresh read first if the file is old (the toolbar DTC icon -> Read
-    -> Copy As File). Read-only."""
-    raw = _ps(
-        f"$f=Get-ChildItem -LiteralPath '{BACKUP_ROOT}' -Recurse -File -Filter '*_DTC-*.txt' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; "
-        f"if(-not $f){{'NOFILE'; exit}}; 'FILE '+$f.LastWriteTime.ToString('yyyy-MM-dd HH:mm')+' '+$f.Name; Get-Content -LiteralPath $f.FullName")
-    if raw.startswith("NOFILE") or not raw.strip():
-        return "No DTC file yet. In EsysUltra: DTC icon -> Read -> Copy As File, then call again."
-    lines = raw.splitlines()
-    header, ecu, faults, clean = lines[0], "", [], []
-    for ln in lines[1:]:
-        m = re.match(r"/// (.+?) - (.+?) ///", ln.strip())
-        if m:
-            ecu = m.group(1)
-            if "No DTC reported" in m.group(2):
-                clean.append(ecu)
-            continue
-        m = re.match(r"\s*([0-9A-F]{6})\s*->\s*(.+)", ln)
-        if m and ecu:
-            faults.append(f"{ecu} | {m.group(1)} | {m.group(2).strip()}")
-    return (f"{header}\n{len(faults)} faults\n" + "\n".join(faults) +
-            f"\nno faults: {', '.join(clean) if clean else '-'}")
-
-
-@mcp.tool()
-def verify_coding(ecu: str) -> str:
-    """After Code NCD + a fresh Read Coding Data: compare the newest READ file with
-    the WRITE file for an ECU in RealTimeBackup (e.g. ecu="HU_MGU" or "DME_BAC2").
-    Identical MD5 = the car holds exactly what was written. Also reports the before
-    file so the change is reversible. Read-only."""
-    out = _ps(
-        f"$d=Get-ChildItem -LiteralPath '{BACKUP_ROOT}' -Recurse -Directory | Where-Object {{ $_.Name -like '{ecu}*' -and $_.Parent.Name -eq 'NCD' }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; "
-        f"if(-not $d){{'NODIR'; exit}}; $fs=@(Get-ChildItem -LiteralPath $d.FullName | Sort-Object LastWriteTime); "
-        f"foreach($f in $fs){{ $f.Name+'  '+$f.LastWriteTime.ToString('HH:mm:ss')+'  '+(Get-FileHash -LiteralPath $f.FullName -Algorithm MD5).Hash }}; "
-        f"$w=$fs | Where-Object Name -like '*_WRITE_*' | Select-Object -Last 1; $r=$fs | Where-Object {{ $_.Name -like '*_READ_*' -and $_.LastWriteTime -gt $w.LastWriteTime }} | Select-Object -Last 1; "
-        f"if(-not $w){{'RESULT: no WRITE file - nothing coded for this ECU today'}} elseif(-not $r){{'RESULT: no READ after the WRITE - do Read Coding Data (it may time out for a minute after coding)'}} "
-        f"else {{ $a=(Get-FileHash -LiteralPath $w.FullName -Algorithm MD5).Hash; $b=(Get-FileHash -LiteralPath $r.FullName -Algorithm MD5).Hash; if($a -eq $b){{'RESULT: VERIFIED - read-back identical to write'}} else {{'RESULT: MISMATCH - read-back differs from write, investigate before driving'}} }}")
-    return "No NCD backup folder for that ECU. Names look like DME_BAC2, HU_MGU, IHKA4." if out.startswith("NODIR") else out
-
-
 @mcp.tool()
 def calibrate() -> str:
     """Self-test of capture and click accuracy on THIS laptop. Opens a full-screen
@@ -509,10 +444,7 @@ def screenshot(fmt: str = "jpg") -> Image:
     fmt="jpg" (default) returns a compressed JPEG - a few tens of KB, best over a
     hotspot. fmt="png" returns the lossless ~600 KB frame when you need pixel detail.
 
-    For the BMW coding apps (EsysUltra, E-Sys) this IS the read path: they're Java
-    UIs with no tempWebView.html and near-empty UIA, so you read the screen visually
-    from this frame and act with coordinate click()/type_text(). Keep the app
-    maximised so it fills the 1920x1080 capture (native, DPI-aware).
+    Keep ISTA maximised so it fills the capture (native resolution, DPI-aware).
 
     For watching ISTA fluidly (many frames), call start_stream() once and then
     latest_frame() repeatedly - that path skips the scheduler trigger and the wait."""
@@ -676,9 +608,8 @@ def list_controls(name_filter: str = "", app: str = "ISTAGUI") -> str:
     runs elevated. Use it to find the exact name for click_control() instead of
     hunting pixel coordinates. Optional name_filter narrows the list.
 
-    app is a process-name substring: "ISTAGUI" (default, ISTA+), "EsysUltra" or
-    "E-Sys" for BMW coding. This is also the probe for whether an app is UIA-driveable
-    at all - a WPF/.NET app (ISTA, EsysUltra) lists richly; a pure-Java app (E-Sys)
+    app is a process-name substring: "ISTAGUI" (default, ISTA+). Also the probe for
+    whether an app is UIA-driveable at all - a WPF/.NET app lists richly; a Java app
     may show little, in which case fall back to screenshot() + coordinate click().
     Columns: ControlType, Name, AutomationId, X,Y,W,H, Enabled."""
     line = f"UIALIST @{app}" + (f" {name_filter}" if name_filter else "")
@@ -691,14 +622,14 @@ def click_control(name: str, app: str = "ISTAGUI") -> str:
     coordinate click(). Matching is case-insensitive: exact, then prefix, then
     substring (list_controls() shows the real names). Uses the control's own
     Invoke/Select/Toggle/Expand pattern, falling back to a physical click at its
-    centre. app is a process-name substring: "ISTAGUI" (default), "EsysUltra", etc.
+    centre. app is a process-name substring: "ISTAGUI" (default).
 
     The IstaInput task runs elevated (/rl HIGHEST), so this lands even into an
     elevated window. If nothing responds, run diagnose() (usually a wedged scheduler).
 
-    HARD RULE for BMW coding (EsysUltra/E-Sys): only click READ/navigate controls
-    autonomously. Anything that WRITES to the car - code / program / flash / FDL
-    write / VCM - stays human-confirmed. Never click it during an active write."""
+    HARD RULE: read and navigate autonomously; any control that writes to the car
+    (coding, programming, clear fault memory, service-function execute) only after
+    the human types an explicit go for that step."""
     if not ALLOW_INPUT:
         return ("Input is disabled. Set ISTA_MCP_ALLOW_INPUT=1 to enable it, and "
                 "NEVER enable it during a flash / coding / actuator write.")
@@ -723,17 +654,17 @@ def ista_elevation(mode: str = "status") -> str:
 
 @mcp.tool()
 def click(x: int, y: int) -> str:
-    """(opt-in) Left-click at screen coordinates - the PRIMARY way to drive the BMW
-    coding apps EsysUltra and E-Sys, which are Java (Swing/JavaFX) and expose little
-    to UIAutomation. Flow: screenshot(), read the frame visually, pick the pixel,
-    click. Coordinates are screen pixels in the 1920x1080 capture (native, DPI-aware; UIA coords match 1:1). Runs elevated so it lands
-    even in an elevated window.
+    """(opt-in) Left-click at screen coordinates. Prefer click_control(name) for ISTA
+    (it is WPF and exposes real control names); use coordinates only for controls
+    that expose no name. Coordinates are screen pixels in the capture (native,
+    DPI-aware; UIA coords match 1:1). Runs elevated so it lands even in an elevated
+    window.
 
-    HARD RULE (BMW coding writes to the car - a bad write bricks an ECU): only click
-    READ / navigate controls autonomously (Read FA/VO, Read SVT, open the FDL editor,
-    read DTCs/NCD). NEVER autonomously click a WRITE-to-car action - "Code FDL", any
-    VO/FA write, or TAL execute/flash - those stay human-confirmed, and EsysUltra's
-    Full Backup must run first. Never click anything during an active flash/write."""
+    HARD RULE: read and navigate autonomously (fault memory, test plans, documents,
+    measurements). Anything that WRITES to the car - coding, programming/flashing,
+    clearing fault memory, actuator tests on safety systems, service-function
+    executes - only after the human types an explicit go for that exact step. Never
+    click anything while a programming or coding job is running."""
     return _send(f"CLICK {x} {y}")
 
 
@@ -743,24 +674,22 @@ def input_sequence(actions: list[str]) -> str:
     popup menu opened by one step is still open for the next. Each item is a raw
     verb line: "CLICK x y", "RCLICK x y", "DBLCLICK x y", "SCROLL n", "TYPE text",
     "KEY {DOWN}{DOWN}{ENTER}" (SendKeys syntax; ENTER/TAB/ESC also accepted).
-    Example - E-Sys context menu, 2nd item: ["RCLICK 452 710", "KEY {DOWN}{DOWN}{ENTER}"].
-    Same HARD RULE as click(): never a write-to-car item."""
+    Example - context menu, 2nd item: ["RCLICK 452 710", "KEY {DOWN}{DOWN}{ENTER}"].
+    Same HARD RULE as click(): never a write-to-car item without a typed go."""
     return _send("\n".join(a.strip() for a in actions if a.strip()))
 
 
 @mcp.tool()
 def right_click(x: int, y: int) -> str:
-    """(opt-in) Right-click at screen coordinates - opens context menus, which is how
-    E-Sys/EsysUltra reach "Edit FDL" on a CAFD in the SVT tree. Same coordinate space
-    and HARD RULE as click(): read/navigate menu items only; any code/flash item in
-    the menu stays human-confirmed."""
+    """(opt-in) Right-click at screen coordinates to open a context menu. Same
+    coordinate space and HARD RULE as click()."""
     return _send(f"RCLICK {x} {y}")
 
 
 @mcp.tool()
 def double_click(x: int, y: int) -> str:
-    """(opt-in) Left double-click at screen coordinates - open a tree item or a file
-    in a Java Swing list. Same coordinate space and HARD RULE as click()."""
+    """(opt-in) Left double-click at screen coordinates (open a tree item or list
+    entry). Same coordinate space and HARD RULE as click()."""
     return _send(f"DBLCLICK {x} {y}")
 
 

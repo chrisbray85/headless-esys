@@ -1,110 +1,112 @@
-# headless-esys
+# headless-ista
 
-**Let an AI agent see and drive a BMW coding laptop.** An MCP server that connects a
-Claude (or any MCP client) to a Windows laptop at the car, so the agent can read the
-screen, read files and logs, and, when you allow it, click and type into
-**EsysUltra / E-Sys** for coding and **ISTA+** for diagnosis. You stay in charge of
-every write to the car.
+**Let an AI agent run BMW ISTA+ diagnostics for you, headlessly.** An MCP server that
+connects Claude (or any MCP client) to the Windows laptop at your car, so the agent
+can read ISTA's fault memory and test plans as text, look the problem up on the web,
+explain it, and click through ISTA's screens for you. You stay in charge of anything
+that writes to the car.
 
-Built and proven by a hobbyist on a 2018 G20 320d: three ECUs coded and verified in
-one evening, with the agent doing the driving and the owner giving the go for each
-write. The guide, the coordinate maps and the gotchas from that session are all here.
+Built and proven by a hobbyist on a 2018 G20 320d: the agent read a 244C00 turbo
+pressure-converter fault, pulled BMW's own test plan and the vacuum diagram, and
+pointed at a kinked hose by the dipstick. Fixed, and the next read showed the code gone.
 
-> **Nothing is given away here.** This repo contains no BMW software, no E-Sys, no
-> EsysUltra, no psdzdata and no licence. It is an MCP server plus documentation for
-> people who **already have a working E-Sys/EsysUltra setup** and want an AI agent to
-> drive it. You bring your own licensed tools, your own data, your own laptop and your
-> own car.
+> **Nothing is given away here.** This repo contains no BMW software or data. It is an
+> MCP server plus documentation for people who **already run ISTA+** on a laptop and
+> want an AI agent to drive it. You bring your own ISTA install, laptop and car.
 
 ## What it is, in plain words
 
-You have a laptop in the garage with E-Sys or EsysUltra on it, plugged into the car.
-Normally you sit at that laptop and click through the screens yourself. With this, the
-laptop can sit there with nobody at it (headless), and an AI agent on your phone or
-computer does the clicking for you, talking to you in chat:
+You have a laptop in the garage with ISTA on it, plugged into the car. Normally you sit
+there clicking through screens and reading German. With this, the laptop can sit with
+nobody at it (headless) and an agent on your phone or computer does the reading and
+clicking, talking to you in chat:
 
-- It **sees** the laptop screen and reads what is on it, including E-Sys's German
-  property names and comments (`Kommentar=Status MSAFahrerwunsch …`), which it
-  translates and explains as it goes.
-- It **finds** the coding you asked for in the community cheat sheets, opens the right
-  module, shows you the current value and what it will become.
-- It **waits for you to say go**, then writes it, reads it back, and proves the car
-  holds the new value.
-- It **keeps the receipts**: before/after files, a timestamped log, the fault list.
+- It **reads** what ISTA is showing as text, not pixels: fault descriptions, test
+  plans, procedures, wiring notes. No OCR, no squinting at screenshots. It translates
+  the German as it goes.
+- It **looks things up**: the fault code on Bimmerpost, known failure patterns for your
+  model, part numbers. ISTA plus the web in one conversation.
+- It **navigates**: opens the fault, starts the test plan, reads the next step, reports
+  the measurement, asks what you found.
+- It **asks before anything that writes**: clearing faults, service functions, actuator
+  tests on safety systems, coding or programming. Those need you to type a go.
+- It **keeps notes**: a timestamped log of what was read and decided, so you can pick
+  up next weekend where you left off.
 
-You still plug the cable in, turn the ignition on, and say go. Everything else is
-typed, not clicked.
+## Why ISTA and not E-Sys
+
+ISTA is BMW's dealer diagnostic system. It has guardrails: it checks compatibility,
+refuses nonsense, and guides you step by step. E-Sys coding has none of that; it will
+execute whatever you tell it, and an agent on top inherits that. This project started
+with both and deliberately dropped the coding side from the public tool after an honest
+conversation with people who know E-Sys better than we do. The coding work is kept on
+the [`esys` branch](https://github.com/chrisbray85/headless-ista/tree/esys) for
+reference and is unsupported.
 
 ## Credits
 
-- **E-Sys** is BMW's engineering tool. **EsysUltra** (<https://esysultra.com>) is the
-  independent front end that makes it usable: cheat-sheet pane, real-time backups,
-  UltraAdmin launcher, DTC reader. It is what this project was built and tested against,
-  and it is the recommended way to run E-Sys. This project only drives it through its
-  normal window; all the heavy lifting is theirs. Buy a licence from them.
-- **Cheat sheets** in [cheatsheets/](cheatsheets/) are community work, each file carrying
-  its author's name; see [cheatsheets/README.md](cheatsheets/README.md).
-- **ISTA+** is BMW's dealer diagnostic system. The text-first read tools here were first
-  built for it and still work; it is not required for coding.
-
-## What it does
-
-| You want to | The agent does |
-|---|---|
-| Know what is wrong with the car | Opens the DTC reader, reads all modules, saves the list, explains the codes |
-| Change a coding | Reads the module (backup), applies the cheat or edits the property, shows you before → after, waits for your **go**, codes it, reads it back to prove it |
-| Check the car's software level | Reads the vehicle order and SVT, compares to your psdzdata |
-| Drive a slow UI without the mouse | Screenshots, coordinate clicks, keyboard menu picks, in one helper pass |
-| Not brick anything | Refuses to write without an explicit go per ECU; never clicks during a write; verifies by file comparison |
+- **ISTA+** is BMW AG's diagnostic system; this project only drives it through its
+  normal window and reads the documents it renders.
+- The community on Bimmerpost and Bimmerfest, whose threads are what the agent's web
+  lookups find.
+- **EsysUltra** (<https://esysultra.com>), whose developer's candid advice shaped the
+  decision above.
 
 ## How it works
 
 ```
-MCP client (Claude Code)  ─stdio─▶  ista_mcp/server.py  ─ssh/scp over Tailscale─▶  Laptop at the car (Windows)
+MCP client (Claude Code)  ─stdio─▶  ista_mcp/server.py  ─ssh/scp over Tailscale─▶  Laptop at the car (Windows + ISTA+)
+                                                                                    ├─ state.ps1     ISTA's displayed document as text + a frame + status, one call
                                                                                     ├─ grab.ps1      screen capture (DPI-aware, JPEG)
-                                                                                    ├─ input.ps1     click / right-click / double-click / keys / scroll / UIA
-                                                                                    ├─ state.ps1     ISTA's rendered document as text, in one call
+                                                                                    ├─ input.ps1     UIA click-by-name / coordinate click / keys / scroll
                                                                                     ├─ diagnose.ps1  why capture or input is not working
                                                                                     ├─ caltarget.ps1 calibration target window
                                                                                     └─ run-hidden.vbs launches the above with no console window
 ```
 
-SSH lands in Windows "Session 0", which cannot see the desktop. Capture and input run
-as scheduled tasks with the interactive token (`/it`), the input task elevated, and are
-launched through a VBScript so no console window flashes on the desktop (a flash steals
-focus and closes Java popup menus). Everything the agent needs from the laptop comes
-back as text or a small JPEG, so it works over a phone hotspot.
+The two ideas that make it work:
+
+1. **Read text as text.** ISTA renders whatever it is displaying to
+   `%LOCALAPPDATA%\Temp\tempWebView.html`. `read_state()` and `read_doc()` parse that
+   file: the full text in one round-trip. Screenshots are only for graphs and dialogs.
+2. **Drive controls by name.** ISTA is a WPF app, so `list_controls()` returns real
+   control names and `click_control("Start test plan")` acts on them through UI
+   Automation, robust against layout changes. Coordinate clicks are the fallback.
+
+SSH lands in Windows "Session 0", which cannot see the desktop; capture and input run
+as scheduled tasks with the interactive token, launched with no console window.
+Everything comes back as text or a small JPEG, so it works over a phone hotspot.
 
 ## Quick start
 
 **Laptop (Windows 10/11):** OpenSSH server enabled, your SSH user is a local admin, a
 desktop session logged in (auto-login recommended), Tailscale or another route in,
-EsysUltra/E-Sys installed with psdzdata. Set UltraAdmin's Memory to 4096 if you have
-16 GB.
+ISTA+ installed and working by hand.
 
 **Your machine:**
 
 ```bash
-git clone https://github.com/chrisbray85/headless-esys.git && cd headless-esys
+git clone https://github.com/chrisbray85/headless-ista.git && cd headless-ista
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 claude mcp add-json ista-garage --scope user '{
   "command": "'$PWD'/.venv/bin/python",
   "args": ["'$PWD'/ista_mcp/server.py"],
-  "env": { "ISTA_MCP_SSH": "user@100.x.y.z", "ISTA_MCP_ALLOW_INPUT": "1" }
+  "env": { "ISTA_MCP_SSH": "user@100.x.y.z" }
 }'
 ```
 
-**First session, in this order:** `diagnose()` → `setup()` → `calibrate()` →
-`screenshot()`. Then hand the agent [AGENTS.md](AGENTS.md); it is written for the agent
-to read.
+Add `"ISTA_MCP_ALLOW_INPUT": "1"` to the env only when you want the agent to click.
+Without it the agent can read everything and click nothing.
 
-From a terminal, `scripts/smoke.py --deploy` runs setup plus a read-only check of every
-tool and prints PASS/FAIL per step.
+**First session, in this order:** `diagnose()` → `setup()` → `calibrate()` →
+`read_state()`. Then hand the agent [AGENTS.md](AGENTS.md); it is written for the agent
+to read. From a terminal, `scripts/smoke.py --deploy` runs setup plus a check of every
+tool.
 
 ## Calibration self-test
 
-`calibrate()` opens a full-screen target on the laptop with five numbered markers, reads
-the physical screen size, clicks each marker through the normal input path, and reports:
+`calibrate()` opens a full-screen target with five numbered markers, reads the physical
+screen size, clicks each marker through the normal input path, and reports:
 
 ```
 screen 1920x1080 · capture 1920x1080 (match) · hits 5/5 · max error 0 px
@@ -112,108 +114,53 @@ screen 1920x1080 · capture 1920x1080 (match) · hits 5/5 · max error 0 px
 
 ![calibration target on the laptop](docs/img/calibration.jpg)
 
-Anything less means the agent's clicks would land in the wrong place. The usual causes,
-all handled by `setup()` on a fresh laptop: Windows display scaling (the helpers are
-DPI-aware), the laptop on battery (scheduled tasks default to "don't start on
-batteries"), Defender quarantining the scripts (an exclusion is added), or no desktop
-logged in (`diagnose()` says so).
+Anything less means clicks would land in the wrong place. The usual causes, all handled
+by `setup()`: display scaling (helpers are DPI-aware), laptop on battery (tasks default
+to "don't start on batteries"), Defender quarantining the scripts, no desktop logged in.
 
 ## Tools
 
 | Tool | Kind | What |
 |---|---|---|
-| `diagnose()` | check | Names why capture/input is or isn't working: desktop, Defender, scheduler, battery, app state. |
-| `setup()` | install | Pushes the helper scripts, registers the tasks, clears battery limits, adds the Defender exclusion. Idempotent. |
-| `calibrate()` | check | Screen-size and five-point click accuracy test (needs input enabled). |
-| `screenshot(fmt)` | read | One-shot frame, JPEG by default. The coordinate space for every click. |
-| `start_stream()` / `latest_frame()` / `stop_stream()` | read | Near-live frames from a capture loop; cheap over a hotspot. |
-| `read_state()` / `read_doc()` | read | ISTA's currently displayed document as text (no OCR). |
-| `list_controls(app, name_filter)` | read | Real control names and positions for WPF apps (UltraAdmin, ISTA). Java apps return nothing; use the screen. |
-| `read_faults()` | read | The last DTC read as structured lines (ECU, code, text) from EsysUltra's saved file. |
-| `list_backups()` / `verify_coding(ecu)` | read | What the real-time backup holds; compare read-back with write for one ECU (VERIFIED / MISMATCH). |
-| `list_sessions()` / `read_log()` / `run()` | read | ISTA session folders, any file, any read-only command on the laptop. |
-| `click(x,y)` / `right_click` / `double_click` | input | Coordinate mouse actions (elevated, so they land in admin apps). |
-| `input_sequence([...])` | input | Several actions in one helper pass, e.g. open a popup menu and pick an item by keyboard. |
-| `type_text` / `press_key` / `scroll` | input | Keyboard and wheel. |
-| `click_control(name, app)` | input | Act on a WPF control by name via UI Automation. |
-| `ista_elevation(mode)` | admin | Read or change ISTA's run-as-admin layer. |
+| `read_state()` / `read_doc()` | read | **The primary read.** ISTA's displayed document as text, plus a frame and ISTA's status, in one call. |
+| `list_sessions()` / `read_log()` | read | ISTA's session folders and any file on the laptop. |
+| `list_controls(name_filter)` | read | ISTA's buttons, tabs and items by real name. |
+| `diagnose()` / `setup()` / `calibrate()` | check | Why capture or input isn't working; install; click-accuracy self-test. |
+| `screenshot()` / `start_stream()` / `latest_frame()` | read | Frames for graphs and dialogs; near-live over a hotspot. |
+| `run(command)` | read | Read-only shell on the laptop. |
+| `click_control(name)` | input | Act on an ISTA control by name. Preferred. |
+| `click` / `right_click` / `double_click` / `input_sequence` / `type_text` / `press_key` / `scroll` | input | Coordinate and keyboard fallbacks. |
+| `ista_elevation(mode)` | admin | Read or change ISTA's run-as-admin layer (why clicks do or don't land). |
 
-Input tools exist only when `ISTA_MCP_ALLOW_INPUT=1` is set. Every input tool's help
-text carries the rule: read and navigate freely, never a write to the car without the
-human's go.
-
-## Cars it has run on
-
-One so far, yours could be next: [docs/CARS.md](docs/CARS.md). One row per car, no VIN,
-say what you coded and whether it verified.
-
-## Support the project
-
-This is one person's evenings. If it saved you a trip to a coder or an afternoon of
-clicking, a coffee helps:
-
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-ffdd00?style=flat-square)](https://buymeacoffee.com/chrisbray85)
-
-The goal is a small website with the guide, a searchable cheat-sheet index, and
-per-car pages, plus the next tools: a plug-in fault check that messages you, a coding
-profile you re-apply after a software update, and ISTA+ test plans driven end to end.
-Stars and shared cheat sheets help just as much.
-
-## Documentation
-
-- [docs/GUIDE.md](docs/GUIDE.md): the hobbyist coding guide. UltraAdmin settings,
-  connect, read, backup, code, verify, every gotcha met, what was coded on a G20 320d
-  with property names, fault notes, and the secure-coding caveat before you update
-  software.
-- [docs/ui-controls.md](docs/ui-controls.md): coordinate maps for UltraAdmin, the
-  EsysUltra Coding view, the FDL editor, the DTC reader and the cheat pane, plus the
-  proven click sequences.
-- [cheatsheets/INDEX.md](cheatsheets/INDEX.md): every cheat entry by series, ECU, CAFD
-  and property, generated from the XMLs.
-- [docs/GLOSSARY.md](docs/GLOSSARY.md): the German and BMW terms in E-Sys, explained.
-- [AGENTS.md](AGENTS.md): the operating brief an agent reads before its first tool call.
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to add cheat sheets, maps and code.
-
-## Proven so far
-
-- Capture and input on a 1920×1080 laptop at 125% scaling, on battery, over a phone
-  hotspot that dropped twice.
-- UltraAdmin driven by UI Automation; EsysUltra driven by screenshot + coordinates,
-  including Java popup menus and the cheat-sheet pane.
-- On a 2018 G20 320d: Start/Stop memory, eight head-unit changes, colder air-con, all
-  read back byte-identical; full DTC read of 21 modules.
-- ISTA+: text-first document reads and UI Automation clicks were built and checked
-  earlier; a full ISTA diagnostic session driven end to end is the next thing to prove.
-
-## Roadmap
-
-- `read_faults()` as structured data from EsysUltra's saved DTC file
-- A "plug-in check": on every connection, read faults, diff against last time, report
-- A coding profile file: everything coded on this car, re-applied in one pass after a
-  software update
-- ISTA+ end-to-end: test plan navigation and service functions through the same tools
+Input tools exist only with `ISTA_MCP_ALLOW_INPUT=1`. Every input tool's help text
+carries the rule: read and navigate freely; anything that writes to the car waits for a
+typed go.
 
 ## Disclaimer, read it
 
-- **This is hobby software and it can be wrong.** The agent reads the screen and
-  decides where to click. It asks you before any write to the car, but a wrong value
-  you approve still gets written. Understand each change before you say go, and keep
-  the backups it makes.
-- **You are responsible for your car.** Coding can disable safety-relevant functions,
-  void warranty, or breach local law (speedometer correction and video in motion are
-  the usual examples). Check before you apply.
-- **A failed flash can disable a module.** Software updates are outside what this
-  project tests; read the secure-coding section of the guide before attempting one.
-- **No affiliation** with BMW AG, EsysUltra, or the cheat-sheet authors. All names are
-  their owners' trademarks. Nothing from BMW is included here.
-- **No warranty.** MIT licence: provided as is.
+- **Hobby software; it can be wrong.** The agent reads a screen and decides what to
+  click. It asks before anything that writes, but what you approve is on you.
+- **You are responsible for your car.** Service functions and fault clearing have
+  consequences; understand each step before you say go.
+- **No affiliation** with BMW AG or any tool vendor. Nothing from BMW is included.
+- **No warranty.** MIT licence.
 
-## Safety, plainly
+## Documentation
 
-Coding writes to control units. This tool makes it easier, not safer. Keep the rules:
-engine off and ignition on, one ECU at a time, backup before, verify after, charger on
-for anything longer than a coding, and never update a module's software without
-reading the secure-coding section of the guide first.
+- [docs/GUIDE.md](docs/GUIDE.md): a diagnostic session with the agent, start to finish,
+  from the real 244C00 case, with the gotchas.
+- [docs/GLOSSARY.md](docs/GLOSSARY.md): the German and BMW terms ISTA uses, explained.
+- [AGENTS.md](AGENTS.md): the operating brief an agent reads before its first tool call.
+- [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Support the project
+
+Evenings and weekends. If it saved you a trip to a garage:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-ffdd00?style=flat-square)](https://buymeacoffee.com/chrisbray85)
+
+Next up: fault memory as structured data, a "plug-in check" that messages you when a
+new fault appears, and guided test plans with the agent narrating each step.
 
 ## License
 
