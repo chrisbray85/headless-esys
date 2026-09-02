@@ -623,6 +623,22 @@ def click(x: int, y: int) -> str:
 
 
 @mcp.tool()
+def right_click(x: int, y: int) -> str:
+    """(opt-in) Right-click at screen coordinates - opens context menus, which is how
+    E-Sys/EsysUltra reach "Edit FDL" on a CAFD in the SVT tree. Same coordinate space
+    and HARD RULE as click(): read/navigate menu items only; any code/flash item in
+    the menu stays human-confirmed."""
+    return _send(f"RCLICK {x} {y}")
+
+
+@mcp.tool()
+def double_click(x: int, y: int) -> str:
+    """(opt-in) Left double-click at screen coordinates - open a tree item or a file
+    in a Java Swing list. Same coordinate space and HARD RULE as click()."""
+    return _send(f"DBLCLICK {x} {y}")
+
+
+@mcp.tool()
 def type_text(text: str) -> str:
     """(opt-in) Type text into the currently focused ISTA field (e.g. a VIN)."""
     return _send("TYPE " + text)

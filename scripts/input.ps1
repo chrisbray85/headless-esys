@@ -1,6 +1,8 @@
 # Reads one action from C:\ista-mcp\action.txt and performs it in the interactive
 # desktop session, logging to C:\ista-mcp\input.log. Actions:
 #   CLICK x y     - left-click at screen pixel coords (relative to the grab.ps1 screenshot)
+#   RCLICK x y    - right-click (context menus, e.g. E-Sys 'Edit FDL')
+#   DBLCLICK x y  - left double-click (open tree items / files)
 #   SCROLL n      - mouse wheel (WHEEL_DELTA units; negative = down)
 #   TYPE text     - type into the focused field
 #   KEY  ENTER    - ENTER / TAB / ESC
@@ -45,15 +47,17 @@ public class Inp {
   [StructLayout(LayoutKind.Sequential)] public struct MI { public int dx; public int dy; public uint data; public uint flags; public uint time; public IntPtr extra; }
   [StructLayout(LayoutKind.Sequential)] public struct IN { public uint type; public MI mi; }
   [DllImport("user32.dll")] public static extern uint SendInput(uint n, IN[] p, int cb);
-  const uint MOVE=0x0001, ABS=0x8000, LD=0x0002, LU=0x0004, WH=0x0800;
-  public static uint Click(int x,int y,int W,int H){
+  const uint MOVE=0x0001, ABS=0x8000, LD=0x0002, LU=0x0004, RD=0x0008, RU=0x0010, WH=0x0800;
+  // presses: 1 = left click, 2 = left double-click, -1 = right click
+  public static uint Click(int x,int y,int W,int H){ return Press(x,y,W,H,1); }
+  public static uint Press(int x,int y,int W,int H,int presses){
     int nx=(int)((double)x*65535/(W-1)), ny=(int)((double)y*65535/(H-1));
-    IN[] a=new IN[3];
+    uint down = presses < 0 ? RD : LD, up = presses < 0 ? RU : LU;
+    int n = presses < 0 ? 1 : presses;
+    IN[] a=new IN[1+2*n];
     a[0].type=0; a[0].mi.dx=nx; a[0].mi.dy=ny; a[0].mi.flags=MOVE|ABS;
-    a[1].type=0; a[1].mi.flags=MOVE|ABS; a[1].mi.dx=nx; a[1].mi.dy=ny;
-    a[1].mi.flags=LD;
-    a[2].type=0; a[2].mi.flags=LU;
-    return SendInput(3,a,Marshal.SizeOf(typeof(IN)));
+    for (int i=0;i<n;i++){ a[1+2*i].type=0; a[1+2*i].mi.flags=down; a[2+2*i].type=0; a[2+2*i].mi.flags=up; }
+    return SendInput((uint)a.Length,a,Marshal.SizeOf(typeof(IN)));
   }
   public static uint Wheel(int amt){ IN[] a=new IN[1]; a[0].type=0; a[0].mi.data=(uint)amt; a[0].mi.flags=WH; return SendInput(1,a,Marshal.SizeOf(typeof(IN))); }
 }
@@ -117,6 +121,8 @@ public class Inp {
   switch ($verb) {
     "PING"   { Log "PING ok screen=${W}x${H}" }
     "CLICK"  { $xy = $arg -split '\s+'; $r = [Inp]::Click([int]$xy[0], [int]$xy[1], $W, $H); Log "CLICK $arg screen=${W}x${H} sent=$r" }
+    "RCLICK" { $xy = $arg -split '\s+'; $r = [Inp]::Press([int]$xy[0], [int]$xy[1], $W, $H, -1); Log "RCLICK $arg screen=${W}x${H} sent=$r" }
+    "DBLCLICK" { $xy = $arg -split '\s+'; $r = [Inp]::Press([int]$xy[0], [int]$xy[1], $W, $H, 2); Log "DBLCLICK $arg screen=${W}x${H} sent=$r" }
     "SCROLL" { $r = [Inp]::Wheel([int]$arg); Log "SCROLL $arg sent=$r" }
     "TYPE"   { [System.Windows.Forms.SendKeys]::SendWait($arg); Log "TYPE done" }
     "KEY"    { $k = switch ($arg.ToUpper()) { "ENTER" {"{ENTER}"} "TAB" {"{TAB}"} "ESC" {"{ESC}"} default {$arg} }; [System.Windows.Forms.SendKeys]::SendWait($k); Log "KEY $k" }

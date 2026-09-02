@@ -116,8 +116,21 @@ JavaFX+Swing under a C++/JVM shell. `list_controls(app="ESysUltra")` → **0 con
 Title bar: `E-SysUltra 22.06 (64bit) [<licence>]`; maximise/restore 1830,14; close 1888,14
 (pre-maximise window: maximise button was at 902,19).
 Menu: File 19,41 · Options 72,41 · Extras 134,41 · Help 185,41.
-Toolbar (y=80): back 22 · forward 59 · connect 106 · disconnect 150 · log 195 ·
-open 238 · save 280 · save-as 320 · help 372 · (three more at 422/470/518).
+Toolbar (y=80), Coding/Comfort views: back 22 · forward 59 · connect 106 (shows a red
+X once connected) · disconnect 150 · log 195 · help 246 · EsysUltra extras: 296 =
+**NCD Compare** (WinMerge diff dialog, close X at 1214,139) · 344 = **SVT-ToolBox** (SVT to CAFD / FDL Extractor; close X at 1619,18) · 392 =
+**DTC reader** (dialog "DTC": Read 447,185 (read-only) · **Clear All 533,185 (WRITE —
+never autonomous)** · Copy As Text 645,185 · Copy As File 775,185 · Timeout 1460,185 ·
+ECU list with tick boxes x=438 from y=255 step ~31 · close X 1482,146).
+G20 320d ECUs seen: ACSM5[01] ATM2[61] BDC_BODY3[40] BDC_GW3[10] DKOMBI4[60]
+**DME_BAC2[12]** (engine — Start/Stop memory lives here) DSC_BRS[29] DSC_VIP_IB4[39]
+EGS7[18] FLM2[44] FLM2[43] FZD2[56] GWS2[5E] HKFM2[0D] HU_MGU[63] ICAM4[06] IHKA4[78]
+RAM[37] SCR2[0B] USS[2C] (+1 below the fold).
+(Data Handling start view had a longer toolbar: open 238 · save 280 · save-as 320 ·
+help 372 · extras 422/470/518.) Menus: Extras = Convert OrderXML↔FA only; Options =
+Customize…, Settings…. Comfort Mode rail (x=113): TAL-Calculating 175 · FSC 245 ·
+Certificate Management 313 · SFA 380 · KDS 448 · Anflash 516; Expert Mode 844.
+Connected status bar: I-step shipm/target, series, VIN, "Http-Server: RUNNING".
 Left rail, x=113: Comfort Mode 130 · Expert Mode 161 · Editors & Viewers 192 ·
 Data Handling 224 · (section icons below, e.g. PDX-Charger 113,268) ·
 External Applications 937 · Personal view 969.
