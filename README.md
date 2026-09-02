@@ -1,4 +1,4 @@
-# ISTA-MCP
+# headless-esys
 
 **Let an AI agent see and drive a BMW coding laptop.** An MCP server that connects a
 Claude (or any MCP client) to a Windows laptop at the car, so the agent can read the
@@ -81,7 +81,7 @@ EsysUltra/E-Sys installed with psdzdata. Set UltraAdmin's Memory to 4096 if you 
 **Your machine:**
 
 ```bash
-git clone https://github.com/chrisbray85/ISTA-MCP.git && cd ISTA-MCP
+git clone https://github.com/chrisbray85/headless-esys.git && cd headless-esys
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 claude mcp add-json ista-garage --scope user '{
   "command": "'$PWD'/.venv/bin/python",
@@ -165,6 +165,21 @@ human's go.
 - A coding profile file: everything coded on this car, re-applied in one pass after a
   software update
 - ISTA+ end-to-end: test plan navigation and service functions through the same tools
+
+## Disclaimer, read it
+
+- **This is hobby software and it can be wrong.** The agent reads the screen and
+  decides where to click. It asks you before any write to the car, but a wrong value
+  you approve still gets written. Understand each change before you say go, and keep
+  the backups it makes.
+- **You are responsible for your car.** Coding can disable safety-relevant functions,
+  void warranty, or breach local law (speedometer correction and video in motion are
+  the usual examples). Check before you apply.
+- **A failed flash can disable a module.** Software updates are outside what this
+  project tests; read the secure-coding section of the guide before attempting one.
+- **No affiliation** with BMW AG, EsysUltra, or the cheat-sheet authors. All names are
+  their owners' trademarks. Nothing from BMW is included here.
+- **No warranty.** MIT licence: provided as is.
 
 ## Safety, plainly
 

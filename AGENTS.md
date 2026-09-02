@@ -1,4 +1,4 @@
-# Operating brief for an AI agent using ISTA-MCP
+# Operating brief for an AI agent using headless-esys
 
 You are driving a Windows laptop at a BMW, through the `ista-garage` MCP server in
 this repo. The laptop runs **EsysUltra** (E-Sys front end) for coding and may also run
@@ -7,6 +7,9 @@ coordinate clicks and keys. This file tells you how to get going and what you mu
 never do. Read it fully before the first tool call.
 
 ## 0. Hard rules
+
+Tell the human, once, at the start of a session: "I will ask before every write to the
+car, but you must understand and agree each change; I can be wrong."
 
 1. **Reads and navigation are yours. Writes to the car are the human's.** Read FA,
    read SVT, read DTCs, read coding data, open editors, apply cheats to the local file,
@@ -29,7 +32,7 @@ never do. Read it fully before the first tool call.
 ## 1. Install (once per machine)
 
 ```bash
-git clone https://github.com/chrisbray85/ISTA-MCP.git && cd ISTA-MCP
+git clone https://github.com/chrisbray85/headless-esys.git && cd headless-esys
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
@@ -37,8 +40,8 @@ Register with Claude Code (adjust the paths and the SSH target):
 
 ```bash
 claude mcp add-json ista-garage --scope user '{
-  "command": "/path/to/ISTA-MCP/.venv/bin/python",
-  "args": ["/path/to/ISTA-MCP/ista_mcp/server.py"],
+  "command": "/path/to/headless-esys/.venv/bin/python",
+  "args": ["/path/to/headless-esys/ista_mcp/server.py"],
   "env": { "ISTA_MCP_SSH": "user@100.x.y.z", "ISTA_MCP_ALLOW_INPUT": "1" }
 }'
 ```

@@ -23,7 +23,7 @@ $f.FormBorderStyle = 'None'; $f.StartPosition = 'Manual'
 $f.Bounds = $b; $f.TopMost = $true; $f.BackColor = 'Black'
 
 $lbl = New-Object System.Windows.Forms.Label
-$lbl.Text = "ISTA-MCP calibration target  $W x $H  - click the five numbers"
+$lbl.Text = "headless-esys calibration target  $W x $H  - click the five numbers"
 $lbl.ForeColor = 'White'; $lbl.Font = New-Object System.Drawing.Font('Segoe UI', 20)
 $lbl.AutoSize = $true; $lbl.Location = New-Object System.Drawing.Point(([int]($W/2) - 420), 20)
 $f.Controls.Add($lbl)

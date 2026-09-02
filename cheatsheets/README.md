@@ -16,6 +16,17 @@ G20-specific notes were learned from siegester03's guide,
 <https://github.com/siegester03/bmw-g-series-coding>, and the G20 Bimmerpost coding
 thread. Read that guide for what does and does not work on a G20.
 
+## Coverage and where to find more
+
+The 21 files here cover 66 series codes (most F- and G-series cars, MINI F5x/F6x,
+some i- and RR-series). Newer or car-specific sheets appear in these places; if you
+add one, keep the author attribute and re-run `python scripts/cheat_index.py`:
+
+- Bimmerpost / Bimmerfest "E-Sys Launcher cheat sheet" and per-model coding threads
+- <https://github.com/siegester03/bmw-g-series-coding> (G20 verified list)
+- EsysUltra's own `CheatSheets` folder, which is updated with the app
+- BimmerCode's community list (different format; property names still apply)
+
 ## Use
 
 - **In EsysUltra:** copy the `.xml` files into `C:\Program Files\ESysUltra\CheatSheets\`.
