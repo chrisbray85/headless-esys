@@ -204,8 +204,10 @@ capture, `list_controls()` UIA tree contents (are test-plan buttons named?),
       (`tempWebView.html`): full text, one round-trip, no OCR *(needs live verify)*
 - [x] **UI Automation input** - `list_controls()` + `click_control(name)` drive ISTA's
       WPF controls by name instead of x/y *(needs live verify)*
-- [x] Elevation management - `ista_elevation()` toggles the RUNASADMIN layer that
-      decides whether injected input lands *(needs live verify)*
+- [x] Elevated input past UIPI - the IstaInput task runs `/rl HIGHEST`, so clicks
+      land into an *elevated* ISTA with no restart (works because the SSH login is
+      admin; verified RunLevel=Highest, click execution pending the post-reboot test).
+      `ista_elevation()` (toggle the RUNASADMIN layer + restart ISTA) is the fallback
 - [ ] `read_faults()` - fault memory as structured data (find ISTA's export/session
       files rather than scraping the UI; candidates under `C:\ProgramData\BMW\ISPI`)
 - [ ] A guided "diagnose this fault" prompt that chains read_state -> reason -> next step

@@ -296,9 +296,9 @@ def diagnose() -> str:
             msg += " No pending-reboot flag; try rebooting the laptop anyway."
         problems.append(msg)
     if d.get("ista_running") and d.get("ista_integrity") in ("high", "system"):
-        notes.append("ISTA is ELEVATED - injected clicks are blocked by UIPI. For "
-                     "diagnosis run ista_elevation('off') + restart ISTA; leave elevated "
-                     "for programming/coding.")
+        notes.append("ISTA is elevated - fine, the IstaInput task runs elevated too "
+                     "(/rl HIGHEST) so clicks still land past UIPI. If they don't, "
+                     "fallback is ista_elevation('off') + restart ISTA.")
     if not d.get("ista_running"):
         notes.append("ISTA (ISTAGUI.exe) is not running.")
 
@@ -350,17 +350,25 @@ def setup() -> str:
         _ssh(f'schtasks /create /tn {tn} /tr "{tr}" /sc once /st 23:59 /it /f')
     ips = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
            f"-File {REMOTE_WIN}\\input.ps1")
-    _ssh(f'schtasks /create /tn IstaInput /tr "{ips}" /sc once /st 23:59 /it /f')
+    # /rl HIGHEST => the input task runs ELEVATED (high integrity), so injected clicks
+    # land into an elevated ISTA window instead of being silently dropped by UIPI -
+    # no ISTA restart needed. This only works because the SSH login is an admin (Task
+    # Scheduler elevates the task without a UAC prompt); a non-admin login would fall
+    # back to needing ista_elevation('off'). Capture tasks stay Limited - they don't
+    # need elevation, only the interactive session.
+    inp = _ssh(f'schtasks /create /tn IstaInput /tr "{ips}" /sc once /st 23:59 '
+               f'/it /rl HIGHEST /f')
     return (f"Defender exclusion: {defender}. Installed grab.ps1 + input.ps1 + "
-            "state.ps1 + elev.ps1 and registered IstaGrab (JPEG one-shot), "
-            "IstaGrabPng (PNG fallback), IstaGrabLoop (stream) and IstaInput. "
-            "read_state()/read_doc(), screenshot(), list_controls()/click_control() "
-            "and ista_elevation() are ready. If capture ever comes back empty, call "
-            "diagnose() - it names the cause. Note: capture/input run via /it "
-            "scheduled tasks in the console session - if screenshots are empty, "
-            "make sure a desktop is logged in and unblocked (no installer/UAC modal "
-            "holding the session). Check ista_elevation() - clicks only land when "
-            "ISTA is non-elevated.")
+            "state.ps1 + elev.ps1 + diagnose.ps1 and registered IstaGrab (JPEG "
+            "one-shot), IstaGrabPng (PNG fallback), IstaGrabLoop (stream) and "
+            f"IstaInput [elevated: {inp.strip()[:60]}]. read_state()/read_doc(), "
+            "screenshot(), list_controls()/click_control() and ista_elevation() are "
+            "ready. If capture ever comes back empty, call diagnose() - it names the "
+            "cause. Input runs elevated so clicks land even into an elevated ISTA; "
+            "if they still don't, ista_elevation('off') + restart ISTA is the "
+            "fallback. Capture/input run via /it scheduled tasks in the console "
+            "session, so a desktop must be logged in (a wedged Task Scheduler after "
+            "an install = reboot; diagnose() will say so).")
 
 
 @mcp.tool()
@@ -548,8 +556,10 @@ def click_control(name: str) -> str:
     control's own Invoke/Select/Toggle/Expand pattern, falling back to a physical
     click at its centre. Returns what happened.
 
-    Only lands if ISTA runs NON-elevated - check ista_elevation() if nothing
-    responds. Do NOT use during a flash/coding/actuator write."""
+    The IstaInput task runs elevated (/rl HIGHEST), so this lands even into an
+    elevated ISTA. If nothing responds, run diagnose() (usually a wedged scheduler),
+    and ista_elevation('off') + restart ISTA is the fallback. Do NOT use during a
+    flash/coding/actuator write."""
     if not ALLOW_INPUT:
         return ("Input is disabled. Set ISTA_MCP_ALLOW_INPUT=1 to enable it, and "
                 "NEVER enable it during a flash / coding / actuator write.")
