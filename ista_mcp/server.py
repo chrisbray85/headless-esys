@@ -385,7 +385,7 @@ def screenshot(fmt: str = "jpg") -> Image:
     For the BMW coding apps (EsysUltra, E-Sys) this IS the read path: they're Java
     UIs with no tempWebView.html and near-empty UIA, so you read the screen visually
     from this frame and act with coordinate click()/type_text(). Keep the app
-    maximised so it fills the 1536x864 capture.
+    maximised so it fills the 1920x1080 capture (native, DPI-aware).
 
     For watching ISTA fluidly (many frames), call start_stream() once and then
     latest_frame() repeatedly - that path skips the scheduler trigger and the wait."""
@@ -599,7 +599,7 @@ def click(x: int, y: int) -> str:
     """(opt-in) Left-click at screen coordinates - the PRIMARY way to drive the BMW
     coding apps EsysUltra and E-Sys, which are Java (Swing/JavaFX) and expose little
     to UIAutomation. Flow: screenshot(), read the frame visually, pick the pixel,
-    click. Coordinates are in the 1536x864 capture space. Runs elevated so it lands
+    click. Coordinates are screen pixels in the 1920x1080 capture (native, DPI-aware; UIA coords match 1:1). Runs elevated so it lands
     even in an elevated window.
 
     HARD RULE (BMW coding writes to the car - a bad write bricks an ECU): only click

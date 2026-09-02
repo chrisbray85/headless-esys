@@ -30,6 +30,11 @@ $ErrorActionPreference = "Stop"
 $log = "C:\ista-mcp\grab.log"
 function Log($m) { try { "$(Get-Date -Format s) $m" | Add-Content -LiteralPath $log } catch {} }
 
+# DPI fix (2 Sep 2026): PowerShell is DPI-unaware, so at 125% scaling on a
+# 1920x1080 panel PrimaryScreen.Bounds reported 1536x864 - the capture was the
+# top-left crop and every click landed 1.25x off target. Opt in before any screen call.
+Add-Type -Namespace W -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+[void][W.Dpi]::SetProcessDPIAware()
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 
 # Resolve the JPEG encoder once (reused every frame in loop mode).

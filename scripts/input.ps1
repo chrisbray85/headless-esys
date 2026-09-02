@@ -16,7 +16,7 @@
 # NOTE: if ISTA runs ELEVATED, UIPI blocks Invoke/clicks (UIALIST still works).
 # Fix: elev.ps1 -Mode off, then restart ISTA.
 # Coordinate clicks use SendInput with ABSOLUTE normalised coords (0-65535), which is
-# DPI-independent and matches grab.ps1's PrimaryScreen.Bounds capture.
+# DPI-independent and matches grab.ps1's PrimaryScreen.Bounds capture (both DPI-aware).
 $ErrorActionPreference = "Stop"
 $log = "C:\ista-mcp\input.log"
 $uiaOut = "C:\ista-mcp\uia.txt"
@@ -29,6 +29,11 @@ try {
   $verb = $parts[0]
   $arg = if ($parts.Count -gt 1) { $parts[1] } else { "" }
 
+  # DPI fix (2 Sep 2026): PowerShell is DPI-unaware, so at 125% scaling on a
+  # 1920x1080 panel PrimaryScreen.Bounds reported 1536x864 - the capture was the
+  # top-left crop and every click landed 1.25x off target. Opt in before any screen call.
+  Add-Type -Namespace W -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+  [void][W.Dpi]::SetProcessDPIAware()
   Add-Type -AssemblyName System.Windows.Forms
   $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   $W = $b.Width; $H = $b.Height
