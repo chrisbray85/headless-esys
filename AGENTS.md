@@ -20,8 +20,8 @@ car, but you must understand and agree each change; I can be wrong."
 3. **Engine off, ignition on** for all coding. Ask the human to confirm.
 4. **A backup must exist before a write.** EsysUltra's real-time backup writes
    `NCD\<ECU>\1_READ_<CAFD>.ncd` when you Read Coding Data; check it is there.
-5. **Verify every write** by reading the coding data again and comparing the
-   `3_READ` file with the `2_WRITE` file (identical = success). A post-coding read may
+5. **Verify every write** by reading the coding data again, then `verify_coding(ecu)`
+   (it compares the read-back with the write and says VERIFIED or MISMATCH). A post-coding read may
    time out for a minute; wait and retry, or ask for an ignition off/on. Do not re-code.
 6. **If a tool call errors, check before repeating.** `run('type C:\ista-mcp\input.log')`
    shows whether the action already ran. A dropped link can leave `action.txt` written
@@ -95,6 +95,8 @@ Apply) or (manual: search property, edit value) → Save → Expert Mode → Cod
 **human go** → Code NCD → close both reports → Read Coding Data → compare files.
 
 Cheat sheets with property names and values: [cheatsheets/INDEX.md](cheatsheets/INDEX.md).
+German terms: [docs/GLOSSARY.md](docs/GLOSSARY.md). Faults: `read_faults()` after a DTC
+read with Copy As File. Backups: `list_backups()`.
 
 ## 5. Reporting to the human
 

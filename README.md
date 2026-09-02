@@ -107,8 +107,10 @@ tool and prints PASS/FAIL per step.
 the physical screen size, clicks each marker through the normal input path, and reports:
 
 ```
-screen 1920x1080 · capture 1920x1080 (match) · hits 5/5 · max error 1 px
+screen 1920x1080 · capture 1920x1080 (match) · hits 5/5 · max error 0 px
 ```
+
+![calibration target on the laptop](docs/img/calibration.jpg)
 
 Anything less means the agent's clicks would land in the wrong place. The usual causes,
 all handled by `setup()` on a fresh laptop: Windows display scaling (the helpers are
@@ -127,6 +129,8 @@ logged in (`diagnose()` says so).
 | `start_stream()` / `latest_frame()` / `stop_stream()` | read | Near-live frames from a capture loop; cheap over a hotspot. |
 | `read_state()` / `read_doc()` | read | ISTA's currently displayed document as text (no OCR). |
 | `list_controls(app, name_filter)` | read | Real control names and positions for WPF apps (UltraAdmin, ISTA). Java apps return nothing; use the screen. |
+| `read_faults()` | read | The last DTC read as structured lines (ECU, code, text) from EsysUltra's saved file. |
+| `list_backups()` / `verify_coding(ecu)` | read | What the real-time backup holds; compare read-back with write for one ECU (VERIFIED / MISMATCH). |
 | `list_sessions()` / `read_log()` / `run()` | read | ISTA session folders, any file, any read-only command on the laptop. |
 | `click(x,y)` / `right_click` / `double_click` | input | Coordinate mouse actions (elevated, so they land in admin apps). |
 | `input_sequence([...])` | input | Several actions in one helper pass, e.g. open a popup menu and pick an item by keyboard. |
@@ -149,7 +153,9 @@ human's go.
   proven click sequences.
 - [cheatsheets/INDEX.md](cheatsheets/INDEX.md): every cheat entry by series, ECU, CAFD
   and property, generated from the XMLs.
+- [docs/GLOSSARY.md](docs/GLOSSARY.md): the German and BMW terms in E-Sys, explained.
 - [AGENTS.md](AGENTS.md): the operating brief an agent reads before its first tool call.
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to add cheat sheets, maps and code.
 
 ## Proven so far
 

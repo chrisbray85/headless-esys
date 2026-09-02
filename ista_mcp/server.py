@@ -387,6 +387,71 @@ def setup() -> str:
             "an install = reboot; diagnose() will say so).")
 
 
+BACKUP_ROOT = "C:\\Data\\RealTimeBackup"   # EsysUltra writes FA/SVT/DTC/NCD here per car and day
+
+
+def _ps(script: str, timeout: int = 40) -> str:
+    return _ssh(f'powershell -NoProfile -Command "{script}"', timeout=timeout) or ""
+
+
+@mcp.tool()
+def list_backups(days: int = 1) -> str:
+    """List what EsysUltra's real-time backup holds for the newest car folder: FA,
+    SVT, DTC reads and per-ECU NCD files (1_READ = before, 2_WRITE = written,
+    3_READ = verification). Use it to confirm a before-backup exists prior to a
+    write, and to find the DTC file for read_faults(). Read-only."""
+    out = _ps(
+        f"$r=Get-ChildItem -LiteralPath '{BACKUP_ROOT}' -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1; "
+        f"if(-not $r){{'no RealTimeBackup folder - has EsysUltra read anything yet?'; exit}}; 'car: '+$r.Name; "
+        f"Get-ChildItem -LiteralPath $r.FullName -Recurse -File | Where-Object {{ $_.LastWriteTime -gt (Get-Date).AddDays(-{int(days)}) }} | "
+        f"Sort-Object LastWriteTime | ForEach-Object {{ $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')+'  '+$_.FullName.Substring($r.FullName.Length+1) }}")
+    return out or "(nothing in the last day)"
+
+
+@mcp.tool()
+def read_faults() -> str:
+    """The most recent DTC read as structured text, parsed from the file EsysUltra
+    saves when you press Copy As File in its DTC window (RealTimeBackup/.../DTC/).
+    Returns one line per fault: ECU | code | description, then the modules with no
+    faults. Take a fresh read first if the file is old (the toolbar DTC icon -> Read
+    -> Copy As File). Read-only."""
+    raw = _ps(
+        f"$f=Get-ChildItem -LiteralPath '{BACKUP_ROOT}' -Recurse -File -Filter '*_DTC-*.txt' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; "
+        f"if(-not $f){{'NOFILE'; exit}}; 'FILE '+$f.LastWriteTime.ToString('yyyy-MM-dd HH:mm')+' '+$f.Name; Get-Content -LiteralPath $f.FullName")
+    if raw.startswith("NOFILE") or not raw.strip():
+        return "No DTC file yet. In EsysUltra: DTC icon -> Read -> Copy As File, then call again."
+    lines = raw.splitlines()
+    header, ecu, faults, clean = lines[0], "", [], []
+    for ln in lines[1:]:
+        m = re.match(r"/// (.+?) - (.+?) ///", ln.strip())
+        if m:
+            ecu = m.group(1)
+            if "No DTC reported" in m.group(2):
+                clean.append(ecu)
+            continue
+        m = re.match(r"\s*([0-9A-F]{6})\s*->\s*(.+)", ln)
+        if m and ecu:
+            faults.append(f"{ecu} | {m.group(1)} | {m.group(2).strip()}")
+    return (f"{header}\n{len(faults)} faults\n" + "\n".join(faults) +
+            f"\nno faults: {', '.join(clean) if clean else '-'}")
+
+
+@mcp.tool()
+def verify_coding(ecu: str) -> str:
+    """After Code NCD + a fresh Read Coding Data: compare the newest READ file with
+    the WRITE file for an ECU in RealTimeBackup (e.g. ecu="HU_MGU" or "DME_BAC2").
+    Identical MD5 = the car holds exactly what was written. Also reports the before
+    file so the change is reversible. Read-only."""
+    out = _ps(
+        f"$d=Get-ChildItem -LiteralPath '{BACKUP_ROOT}' -Recurse -Directory | Where-Object {{ $_.Name -like '{ecu}*' -and $_.Parent.Name -eq 'NCD' }} | Sort-Object LastWriteTime -Descending | Select-Object -First 1; "
+        f"if(-not $d){{'NODIR'; exit}}; $fs=@(Get-ChildItem -LiteralPath $d.FullName | Sort-Object LastWriteTime); "
+        f"foreach($f in $fs){{ $f.Name+'  '+$f.LastWriteTime.ToString('HH:mm:ss')+'  '+(Get-FileHash -LiteralPath $f.FullName -Algorithm MD5).Hash }}; "
+        f"$w=$fs | Where-Object Name -like '*_WRITE_*' | Select-Object -Last 1; $r=$fs | Where-Object {{ $_.Name -like '*_READ_*' -and $_.LastWriteTime -gt $w.LastWriteTime }} | Select-Object -Last 1; "
+        f"if(-not $w){{'RESULT: no WRITE file - nothing coded for this ECU today'}} elseif(-not $r){{'RESULT: no READ after the WRITE - do Read Coding Data (it may time out for a minute after coding)'}} "
+        f"else {{ $a=(Get-FileHash -LiteralPath $w.FullName -Algorithm MD5).Hash; $b=(Get-FileHash -LiteralPath $r.FullName -Algorithm MD5).Hash; if($a -eq $b){{'RESULT: VERIFIED - read-back identical to write'}} else {{'RESULT: MISMATCH - read-back differs from write, investigate before driving'}} }}")
+    return "No NCD backup folder for that ECU. Names look like DME_BAC2, HU_MGU, IHKA4." if out.startswith("NODIR") else out
+
+
 @mcp.tool()
 def calibrate() -> str:
     """Self-test of capture and click accuracy on THIS laptop. Opens a full-screen
