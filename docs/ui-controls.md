@@ -188,7 +188,22 @@ select CAFD → **Code FDL / "Code" (WRITE, human-confirmed)**.
 4. Search for property (484,186 / 655,186) → expand it → expand "Ausgelesen" → RCLICK the value row → `KEY {DOWN}{ENTER}` (Edit) → inline combo → `KEY {DOWN}{ENTER}` to pick next value → Save (280,80).
 5. Expert Mode → Coding; NCD row still selected → **Code NCD (1455,826) — WRITE, human go only** → progress window "TAL execution finished" (Close 970,464) → Transaktions-Report "NCD Codieren … cdDeploy Finished" (Close 1134,788). ~15 s. RealTimeBackup gets `2_WRITE_<CAFD>.ncd`.
 6. Verify: Read Coding Data again → `3_READ_<CAFD>.ncd`; compare to 2_WRITE. Use `-LiteralPath` — the ECU folder name contains `[12]`.
-Gotchas: every E-Sys report is MODAL — a click aimed elsewhere hits it. Java popup items: pick by keyboard. Engine OFF, ignition ON.
+Gotchas: **SVT tree rows shift down 20 px for every node you expand** — re-screenshot
+before clicking a CAFD row after any expand (read the wrong CAFD once, 2 Sep). Cheat
+Sheet pane: after opening a new CAFD in the editor the list is empty until **Reload**
+(1826,864); an entry whose property doesn't exist in that CAFD version gives an EMPTY
+Review — don't Apply blind. Keep each `run()` helper sequence under ~45 s of sleeps
+(the tool times out at 60 s and you lose the result, not the actions). Every E-Sys report is MODAL — a click aimed elsewhere hits it. Java popup items: pick by keyboard. Engine OFF, ignition ON.
+
+### Cheat-sheet coding path (fastest, proven on HU_MGU + IHKA4, 2 Sep 2026)
+In the FDL editor: **Reload** (1826,864) → cheat search field 1445,657 (`TYPE ^a<word>`) →
+list rows start y=268, pitch 22 → click row → **Review** (1318,864; review window close
+X 1546,286; EMPTY review = property not in this CAFD version, do NOT apply) → **Apply**
+(1572,864; first time shows an info popup, OK 1571,594; tick "Disable disclaimer" 1523,240)
+→ log pane (y≈692+) prints `section > PROPERTY |> value … Done.` → Save (280,80) →
+Expert Mode (113,161) → Coding (103,340) → NCD child row still selected → Code NCD.
+Post-coding verify read may time out (P2/T2) — DME ok after ~40 s, IHKA4 needed an
+ignition off/on. ECU folder names contain `[nn]` → always `-LiteralPath`.
 
 ## E-Sys (`javaw.exe` + `esysCore.jar`) — not yet probed
 
