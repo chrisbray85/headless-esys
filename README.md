@@ -161,10 +161,10 @@ One command from the Mac deploys and verifies everything:
 .venv/bin/python scripts/smoke.py --deploy
 ```
 
-It checks, in order: SSH; `setup()` (pushes all four PS1s, registers tasks);
-`ista_elevation("status")`; `read_doc()`; `read_state()` (text + frame in one call);
-`screenshot()`; a `PING` through the input task; `list_controls()`; `list_sessions()`.
-Each step prints PASS/FAIL and it keeps going on failure.
+It checks, in order: SSH; `setup()` (adds the Defender exclusion, pushes all four
+PS1s, registers tasks); `ista_elevation("status")`; `read_doc()`; `read_state()`
+(text + frame in one call); `screenshot()`; a `PING` through the input task;
+`list_controls()`; `list_sessions()`. Each step prints PASS/FAIL and keeps going.
 
 **Then, to make clicks land (one-time):** `ista_elevation("off")` and restart ISTA
 normally (not "run as administrator"). Flip back with `ista_elevation("on")` before a
@@ -172,10 +172,28 @@ programming/coding session. While ISTA runs elevated, `list_controls()` still wo
 (UIA reads cross the integrity boundary) but `click_control()`/`click()` are discarded
 by UIPI - `read_state()`'s status line warns about exactly this.
 
-**Must be verified live (can't be tested off-Windows):** `tempWebView.html` freshness
-as you navigate ISTA views (does it re-render per view or only for document views?);
-UIA tree contents for ISTA's WPF controls (are test-plan buttons named?); the elevation
-heuristic; JPEG sizes/legibility; `IstaGrabLoop` CPU while ISTA runs.
+### Two gotchas found on first live deploy (2 Sep 2026)
+
+- **Windows Defender silently quarantines the scripts.** Screen-capture + SendInput
+  PowerShell trips Defender's `ScriptContainedMaliciousContent` heuristic, so
+  `screenshot()` just produces no frame with no obvious error. ISTA's own dirs
+  (`C:\BMW`, `C:\ISTA-setup`, ...) were already Defender-excluded, which is the only
+  reason the earlier hand-built setup worked. `setup()` now adds `C:\ista-mcp` to the
+  exclusion list automatically (best-effort; needs the admin SSH token OpenSSH grants
+  an admin user). Undo by hand with `Remove-MpPreference -ExclusionPath C:\ista-mcp`.
+- **Capture/input need the console session free.** The `/it` tasks run in the
+  logged-on console session; if an installer or a UAC modal is holding that session
+  (or it's disconnected), the task launches (`schtasks` returns 0) but the payload
+  lands in Session 0 and never reaches the desktop - empty screenshots, unlogged
+  input. Make sure a desktop is logged in and idle. `read_doc()`/`read_state()` text
+  still works regardless (it's a plain file read over SSH).
+
+**Confirmed live (2 Sep 2026):** SSH, `setup()`, `read_doc()`/`read_state()` text
+(after a UTF-8 output fix - `tempWebView.html` is real and parses), `list_sessions()`,
+Defender exclusion, ISTA integrity probe (ISTA was running HIGH/elevated).
+**Still to verify with the console session free:** task-driven `screenshot()`/frame
+capture, `list_controls()` UIA tree contents (are test-plan buttons named?),
+`click_control()` after dropping elevation, `tempWebView.html` freshness per ISTA view.
 
 ## Roadmap
 

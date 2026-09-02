@@ -22,10 +22,40 @@ function IstaEntries {
 }
 
 function ProcState {
+  # Authoritative: read ISTA's token integrity level. The old "can I open the
+  # handle" trick is useless here because OpenSSH gives an admin user a HIGH-
+  # integrity session, so it can open any handle and every process looked
+  # "non-elevated". Query the actual TokenIntegrityLevel instead.
   $p = Get-Process ISTAGUI -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $p) { return "ISTA process: not running" }
-  try { $null = $p.Handle; return "ISTA process: running, NOT elevated (input will land)" }
-  catch { return "ISTA process: running ELEVATED (UIPI blocks input - restart ISTA after 'off')" }
+  try {
+    if (-not ("Tok" -as [type])) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class Tok {
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr h, uint a, out IntPtr t);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr t, int c, IntPtr b, int l, out int r);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern IntPtr GetSidSubAuthority(IntPtr s, uint i);
+  public static int Level(IntPtr proc) {
+    IntPtr tok; if(!OpenProcessToken(proc,0x0008,out tok)) return -1;
+    int len; GetTokenInformation(tok,25,IntPtr.Zero,0,out len);
+    IntPtr buf=Marshal.AllocHGlobal(len);
+    try { if(!GetTokenInformation(tok,25,buf,len,out len)) return -2;
+          return Marshal.ReadInt32(GetSidSubAuthority(Marshal.ReadIntPtr(buf),0)); }
+    finally { Marshal.FreeHGlobal(buf); }
+  }
+}
+'@
+    }
+    switch ([Tok]::Level($p.Handle)) {
+      0x3000 { "ISTA process: running ELEVATED (high integrity - UIPI blocks input; run 'off' then restart ISTA)" }
+      0x4000 { "ISTA process: running as SYSTEM (input blocked)" }
+      0x2000 { "ISTA process: running non-elevated (medium integrity - input will land)" }
+      0x1000 { "ISTA process: running low integrity" }
+      default { "ISTA process: running, integrity unknown" }
+    }
+  } catch { "ISTA process: running, integrity probe failed ($($_.Exception.Message))" }
 }
 
 switch ($Mode) {

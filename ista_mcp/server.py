@@ -75,11 +75,14 @@ mcp = MCPServer("ista-garage")
 
 
 def _ssh(cmd: str, timeout: int = 40) -> str:
+    # Capture bytes and decode UTF-8 with replacement: ISTA logs/HTML carry the odd
+    # non-UTF-8 byte and text=True would raise UnicodeDecodeError mid-tool. state.ps1
+    # forces UTF-8 output; this is the belt-and-braces so nothing ever crashes.
     r = subprocess.run(["ssh", "-n", *SSH_OPTS, GARAGE, cmd],
-                       capture_output=True, text=True, timeout=timeout)
-    out = r.stdout or ""
+                       capture_output=True, timeout=timeout)
+    out = (r.stdout or b"").decode("utf-8", "replace")
     if r.returncode and r.stderr:
-        out += f"\n[stderr] {r.stderr.strip()}"
+        out += "\n[stderr] " + r.stderr.decode("utf-8", "replace").strip()
     return out.strip()
 
 
@@ -200,13 +203,20 @@ def _state(no_frame: bool = False, fresh_ms: int = 2500) -> dict:
 
 
 def _status_line(st: dict) -> str:
-    ista = "not running" if not st.get("ista_running") else (
-        "running ELEVATED - input blocked, use ista_elevation('off') + restart ISTA"
-        if st.get("ista_elevated") else "running, non-elevated (input OK)")
-    layer = " [RUNASADMIN layer set - next launch elevated]" if st.get("runasadmin_layer") else ""
+    running = st.get("ista_running")
+    layer = st.get("runasadmin_layer")
+    if not running:
+        ista = "not running"
+    elif layer:
+        # layer set + running => almost certainly elevated => UIPI blocks input.
+        # ista_elevation() confirms authoritatively via the token integrity level.
+        ista = ("running, likely ELEVATED (RUNASADMIN layer set) - if clicks don't "
+                "land, ista_elevation('off') + restart ISTA; confirm with ista_elevation()")
+    else:
+        ista = "running, no RUNASADMIN layer (input should land)"
     doc_age = st.get("html_ms")
     doc = f"doc text {doc_age / 1000:.0f}s old" if doc_age is not None else "no doc html"
-    return f"ISTA {ista}{layer} | {doc} | frame: {st.get('frame_src')}"
+    return f"ISTA {ista} | {doc} | frame: {st.get('frame_src')}"
 
 
 @mcp.tool()
@@ -254,6 +264,15 @@ def setup() -> str:
     IstaGrabLoop (continuous near-live stream) and IstaInput. Run this once before
     first use, and again after updating grab.ps1 / input.ps1."""
     _ssh(f'if not exist "{REMOTE_WIN}" mkdir "{REMOTE_WIN}"')
+    # Windows Defender flags screen-capture + SendInput scripts as malicious
+    # ("ScriptContainedMaliciousContent") and silently blocks them - screenshots
+    # then just never appear. ISTA's own dirs are already excluded; add ours too.
+    # Best-effort: needs an admin SSH token (OpenSSH gives one to an admin user);
+    # a non-admin login just gets a warning here and can add it by hand.
+    defender = _ssh(
+        f'powershell -NoProfile -Command "try {{ Add-MpPreference -ExclusionPath '
+        f"'{REMOTE_WIN}' -ErrorAction Stop; 'defender-exclusion-ok' }} catch "
+        f"{{ 'defender-exclusion-FAILED: ' + $_.Exception.Message }}\"")
     for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1"):
         _scp(str(SCRIPTS / f), f"{GARAGE}:{REMOTE_DIR}/{f}")
     ps = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
@@ -271,11 +290,15 @@ def setup() -> str:
     ips = (f"powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass "
            f"-File {REMOTE_WIN}\\input.ps1")
     _ssh(f'schtasks /create /tn IstaInput /tr "{ips}" /sc once /st 23:59 /it /f')
-    return ("Installed grab.ps1 + input.ps1 + state.ps1 + elev.ps1 and registered "
-            "IstaGrab (JPEG one-shot), IstaGrabPng (PNG fallback), IstaGrabLoop "
-            "(stream) and IstaInput. read_state()/read_doc(), screenshot(), "
-            "list_controls()/click_control() and ista_elevation() are ready. "
-            "Check ista_elevation() next - clicks only land when ISTA is non-elevated.")
+    return (f"Defender exclusion: {defender}. Installed grab.ps1 + input.ps1 + "
+            "state.ps1 + elev.ps1 and registered IstaGrab (JPEG one-shot), "
+            "IstaGrabPng (PNG fallback), IstaGrabLoop (stream) and IstaInput. "
+            "read_state()/read_doc(), screenshot(), list_controls()/click_control() "
+            "and ista_elevation() are ready. Note: capture/input run via /it "
+            "scheduled tasks in the console session - if screenshots are empty, "
+            "make sure a desktop is logged in and unblocked (no installer/UAC modal "
+            "holding the session). Check ista_elevation() - clicks only land when "
+            "ISTA is non-elevated.")
 
 
 @mcp.tool()

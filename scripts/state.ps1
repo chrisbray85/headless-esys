@@ -19,6 +19,10 @@ param(
   [int]$WaitS   = 8       # max seconds to wait for a fresh one-shot frame
 )
 $ErrorActionPreference = "SilentlyContinue"
+# Emit UTF-8 so non-ASCII in ISTA docs (deg/plus-minus/micro/pilcrow) survives the
+# SSH pipe: without this, ConvertTo-Json's output is re-encoded to the console
+# codepage (cp1252) and a lone high byte like 0xB6 breaks the Mac's UTF-8 decode.
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch {}
 $dir = "C:\ista-mcp"
 $docPath = Join-Path $env:LOCALAPPDATA "Temp\tempWebView.html"
 
@@ -27,12 +31,32 @@ function AgeMs($item) {
   [int64]((Get-Date).ToUniversalTime() - $item.LastWriteTimeUtc).TotalMilliseconds
 }
 
+function Read-TextSmart($path) {
+  # Read bytes with a shared handle (WebView2 may hold the file open) and decode
+  # BOM > strict-UTF-8 > Windows-1252. PS 5.1's Get-Content -Raw defaults to ANSI,
+  # which mangles ISTA's UTF-8 doc; this gets a correct .NET string every time.
+  try {
+    $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open,
+          [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try { $b = New-Object byte[] $fs.Length; [void]$fs.Read($b, 0, $b.Length) }
+    finally { $fs.Close() }
+  } catch { return $null }
+  if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) {
+    return [System.Text.Encoding]::UTF8.GetString($b, 3, $b.Length - 3)
+  }
+  try {
+    return (New-Object System.Text.UTF8Encoding($false, $true)).GetString($b)
+  } catch {
+    return [System.Text.Encoding]::GetEncoding(1252).GetString($b)
+  }
+}
+
 # --- doc html ---
 $html = $null; $htmlMs = $null
 $docItem = Get-Item -LiteralPath $docPath -ErrorAction SilentlyContinue
 if ($docItem) {
   $htmlMs = AgeMs $docItem
-  $html = Get-Content -LiteralPath $docPath -Raw -ErrorAction SilentlyContinue
+  $html = Read-TextSmart $docPath
   if ($html -and $html.Length -gt 600000) { $html = $html.Substring(0, 600000) + "`n[TRUNCATED at 600000 chars]" }
 }
 
@@ -70,12 +94,13 @@ if (-not $NoFrame) {
 }
 
 # --- ISTA process + elevation ---
+# Note: real elevation is reported by ista_elevation() (elev.ps1 reads the token
+# integrity level). We deliberately DON'T probe it here on the hot path - the cheap
+# handle trick is unreliable from an elevated SSH session (it always says "not
+# elevated"). The RUNASADMIN layer flag below is the cheap, honest proxy: layer set
+# + ISTA running => almost certainly elevated => injected input will be blocked.
 $proc = Get-Process ISTAGUI -ErrorAction SilentlyContinue | Select-Object -First 1
 $running = [bool]$proc
-$elevated = $null
-if ($proc) {
-  try { $null = $proc.Handle; $elevated = $false } catch { $elevated = $true }
-}
 $layerOn = $false
 $layers = Get-ItemProperty "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction SilentlyContinue
 if ($layers) {
@@ -91,6 +116,5 @@ if ($layers) {
   frame_ms         = $frameMs
   frame_src        = $src
   ista_running     = $running
-  ista_elevated    = $elevated
   runasadmin_layer = $layerOn
 } | ConvertTo-Json -Compress
