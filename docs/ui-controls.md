@@ -165,6 +165,31 @@ Flow for a read: Connect (106,80) → pick target/ENET in dialog → Vehicle Ord
 (281,167) → SVT Actual Read (ECU) (1327,475) → select ECU CAFD in SVT tree → Read
 Coding Data (1309,826) → right-click CAFD → Edit FDL.
 
+### FDL editor ("Edit NCD" on the NCD child node under a CAFD), maximised
+Open it with `input_sequence(["RCLICK <ncd-row x y>", "KEY {DOWN}{DOWN}{ENTER}"])` —
+context menu on the NCD row = Delete · **Edit NCD** (2nd) · Code NCD (WRITE) · Code ·
+Read Coding Data · Read Serial Number · Read ECU INFO · Reboot ECU · Expand · Collapse.
+Mouse-clicking a Java popup item is unreliable; keyboard pick is.
+Editor: File Name 1100,135 (C:\Data\CAF\<CAFD>.ncd) · **Search for** field 484,186 ·
+Search button 655,186 · Filter ticks: Default Values 730,192 · Parameter 850,192 ·
+Activation Condition 948,192. Tree pane 240–1215 x 230–880 (root CAF [ECU] → Header,
+Daten → 3010 BSR_BEREICH / 3020 BSU_BEREICH / 3030 TL_ID / 3031 CAF_ID / 3032 SIGNATURE).
+Right pane = EsysUltra **Cheat Sheet Maker** (search 1445,657 · Series/Author filters ·
+Review 1318,864 · **Apply 1572,864** (edits the FDL locally, not the car) · Reload 1826,864).
+"Values from ECU" strip at y=909. Toolbar gains open 238 · **save 280** · save-as 320.
+Left rail = Editors & Viewers list (FA/TAL/TALFILTER/SVT/SWESEQ/FSC/FDL/Anflash editors,
+CAF/Log viewers). Coding after edit: save (280,80) → back to Expert Mode → Coding →
+select CAFD → **Code FDL / "Code" (WRITE, human-confirmed)**.
+
+### Proven FDL coding workflow (2 Sep 2026, TCM_MSA_MEMORY on DME_BAC2)
+1. Expert Mode → Coding → Read FA (281,167) → SVT Read (ECU) (1327,475).
+2. Scroll SVT to the ECU, click its CAFD row, **Read Coding Data** (1309,826) → report "0 Errors" (Close 1134,788). RealTimeBackup gets `NCD\<ECU>\1_READ_<CAFD>.ncd` = the before-backup.
+3. Expand CAFD (+), select the NCD child row → `input_sequence(["RCLICK x y","KEY {DOWN}{DOWN}{ENTER}"])` = Edit NCD → FDL editor.
+4. Search for property (484,186 / 655,186) → expand it → expand "Ausgelesen" → RCLICK the value row → `KEY {DOWN}{ENTER}` (Edit) → inline combo → `KEY {DOWN}{ENTER}` to pick next value → Save (280,80).
+5. Expert Mode → Coding; NCD row still selected → **Code NCD (1455,826) — WRITE, human go only** → progress window "TAL execution finished" (Close 970,464) → Transaktions-Report "NCD Codieren … cdDeploy Finished" (Close 1134,788). ~15 s. RealTimeBackup gets `2_WRITE_<CAFD>.ncd`.
+6. Verify: Read Coding Data again → `3_READ_<CAFD>.ncd`; compare to 2_WRITE. Use `-LiteralPath` — the ECU folder name contains `[12]`.
+Gotchas: every E-Sys report is MODAL — a click aimed elsewhere hits it. Java popup items: pick by keyboard. Engine OFF, ignition ON.
+
 ## E-Sys (`javaw.exe` + `esysCore.jar`) — not yet probed
 
 Java Swing. Same expectation as above.
