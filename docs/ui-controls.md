@@ -85,11 +85,72 @@ ReserveIcomOnConnect + ReleaseIcomOnDisconnect true, DiscoverIcomAutomatically
 false, DisableRealTimeBackup false, MinimizeToTray false. 23 community cheat
 sheets already installed in `CheatSheets\` (incl. siegester.xml = G20).
 
-## EsysUltra (`ESysUltra.exe`) — not yet probed
+## Launching EsysUltra headlessly — what actually works (2 Sep 2026 18:16)
 
-JavaFX+Swing under a C++/JVM shell. Expected near-empty in UIA; read path is
-`screenshot()` + coordinate `click()`. Run `list_controls(app="EsysUltra")` once
-it is up and append the result here.
+**UltraAdmin resolves `ESysUltra.exe` relative to its CURRENT WORKING DIRECTORY.**
+A scheduled task starts in `C:\Windows\System32`, so an UltraAdmin launched by a
+task with a bare `start "" "...\UltraAdmin.exe"` throws *"ESysUltra.exe does not
+exist. Please re-install ESysUltra and add the following folder to the exclusion
+list of your anti-virus: C:\Windows\System32"* when ▶ is pressed. Not an AV
+problem (`C:\Program Files\ESysUltra\*` is already excluded).
+
+Fix: `C:\ista-mcp\openadmin.cmd` = `start "" /d "C:\Program Files\ESysUltra"
+"C:\Program Files\ESysUltra\UltraAdmin.exe"`, run via scheduled task **OpenAdmin**
+(`/it`, user chris). Then `click(675,449)` on ▶. `ESysUltra.exe` starts as a child of
+UltraAdmin (won't run standalone — the `OpenUltra` task that launches it directly is
+useless; still points at openultra.cmd). Startup: splash → "Creating log file" →
+"Loading KIS Data" (~1.6 GB working set, 1–2 min with all 21 series loaded).
+UltraAdmin exits once EsysUltra is up.
+
+Gotchas: `schtasks /change /tr` on an interactive task prints nothing and does NOT
+apply (needs the password) — create a new task instead. `timeout /t` fails over SSH
+("Input redirection is not supported") — use `powershell Start-Sleep`.
+
+## EsysUltra (`ESysUltra.exe`) — Java, UIA-blind (confirmed)
+
+JavaFX+Swing under a C++/JVM shell. `list_controls(app="ESysUltra")` → **0 controls**
+(probed during startup 2 Sep 2026). Read path is `screenshot()` + coordinate `click()`.
+
+### EsysUltra 22.06 main window, MAXIMISED (1920x1080) — coordinate map, 2 Sep 2026
+
+Title bar: `E-SysUltra 22.06 (64bit) [<licence>]`; maximise/restore 1830,14; close 1888,14
+(pre-maximise window: maximise button was at 902,19).
+Menu: File 19,41 · Options 72,41 · Extras 134,41 · Help 185,41.
+Toolbar (y=80): back 22 · forward 59 · connect 106 · disconnect 150 · log 195 ·
+open 238 · save 280 · save-as 320 · help 372 · (three more at 422/470/518).
+Left rail, x=113: Comfort Mode 130 · Expert Mode 161 · Editors & Viewers 192 ·
+Data Handling 224 · (section icons below, e.g. PDX-Charger 113,268) ·
+External Applications 937 · Personal view 969.
+Status bar y=1006: "Logged in" 1146 · "SWL-Sec: CERTIFICATE" 1277 · "Role: Expert" 1444.
+First-start dialog: "Information ... WAVE-11 ... registry-wave11.bat" — OK at 959,657
+(window not yet maximised). Just dismiss it.
+
+Expert Mode rail (after clicking Expert Mode 113,161), icons at x=103:
+TAL-Processing 205 · VCM 272 · Coding 340 · Coding-Verification 407 ·
+NCD preparation 475 · FSC Extended 542 · TSL-Update 610 · NAV/ENT-Update 677 ·
+OBD-CVN 745 · Certificate Management Extended 812 (list scrolls; scrollbar x=209).
+WRITE-to-car modules (human-confirmed only): TAL-Processing, VCM, Coding (Code FDL /
+Code buttons), FSC Extended, TSL/NAV updates. Read-only within Coding: Connect,
+Read FA, Read SVT, Read Coding Data, open FDL editor.
+
+Coding view (Expert Mode → Coding 103,340), maximised. Toolbar changes: connect 106,80
+· disconnect 150,80 (greyed until connected).
+- Vehicle Order box: Read 281,167 · Load 356,167 · Save 431,167 · Edit 503,167. FA tree
+  renders under it (left pane 240–735 x 185–375); Vehicle Profile pane 750–1905.
+- SVT pane 240–1090 x 415–960 (legend: Actual red / Target red / Identical / HW diff / NCD).
+- SVT Actual: Read (VCM) 1188,475 · Read (ECU) 1327,475 · Load 1462,475 · Save 1583,475
+  · Edit 1706,475 · Close 1826,475.
+- SVT Target / KIS: I-Step (shipm.) 1365,571 · I-Step (target) 1365,600 · Calculate 1183,629
+  · Calculation Strategy radios 1533,591 / 1533,620 / 1712,591 / 1712,620.
+  Target Read (VCM) 1184,714 · Load 1305,714 · Save 1425,714 · Edit 1543,714 · Close 1662,714
+  · HW-IDs from SVTactual 1237,751 · Detect CAF for SWE 1444,751.
+- Coding box: **Code 1175,826 (WRITE)** · Read Coding Data 1309,826 (read) ·
+  **Code NCD 1455,826 (WRITE)** · **Code Default Values 1241,864 (WRITE)** ·
+  Read CPS 1441,864 (read) · Parallel TAL-Execution checkbox 1137,899.
+- SVT filter: All 1160,969 · SVT Reset 1256,969.
+Flow for a read: Connect (106,80) → pick target/ENET in dialog → Vehicle Order Read
+(281,167) → SVT Actual Read (ECU) (1327,475) → select ECU CAFD in SVT tree → Read
+Coding Data (1309,826) → right-click CAFD → Edit FDL.
 
 ## E-Sys (`javaw.exe` + `esysCore.jar`) — not yet probed
 
