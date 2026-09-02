@@ -25,4 +25,4 @@ jobs:
       - name: PowerShell parses
         run: |
           sudo apt-get install -y -qq powershell >/dev/null 2>&1 || pip install -q pwsh 2>/dev/null || true
-          for f in scripts/*.ps1; do pwsh -NoProfile -Command "[System.Management.Automation.Language.Parser]::ParseFile('$f', [ref]\$null, [ref]\$e) | Out-Null; if (\$e.Count) { \$e; exit 1 }" || exit 1; done
+          for f in scripts/*.ps1; do pwsh -NoProfile -Command "\$t=\$null; \$e=\$null; [System.Management.Automation.Language.Parser]::ParseFile('$f', [ref]\$t, [ref]\$e) | Out-Null; if (\$e) { \$e; exit 1 }; Write-Host 'ok $f'" || exit 1; done

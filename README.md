@@ -142,6 +142,23 @@ Input tools exist only when `ISTA_MCP_ALLOW_INPUT=1` is set. Every input tool's 
 text carries the rule: read and navigate freely, never a write to the car without the
 human's go.
 
+## Cars it has run on
+
+One so far, yours could be next: [docs/CARS.md](docs/CARS.md). One row per car, no VIN,
+say what you coded and whether it verified.
+
+## Support the project
+
+This is one person's evenings. If it saved you a trip to a coder or an afternoon of
+clicking, a coffee helps:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-ffdd00?style=flat-square)](https://buymeacoffee.com/headlessesys)
+
+The goal is a small website with the guide, a searchable cheat-sheet index, and
+per-car pages, plus the next tools: a plug-in fault check that messages you, a coding
+profile you re-apply after a software update, and ISTA+ test plans driven end to end.
+Stars and shared cheat sheets help just as much.
+
 ## Documentation
 
 - [docs/GUIDE.md](docs/GUIDE.md): the hobbyist coding guide. UltraAdmin settings,
