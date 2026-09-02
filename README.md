@@ -208,6 +208,15 @@ capture, `list_controls()` UIA tree contents (are test-plan buttons named?),
       land into an *elevated* ISTA with no restart (works because the SSH login is
       admin; verified RunLevel=Highest, click execution pending the post-reboot test).
       `ista_elevation()` (toggle the RUNASADMIN layer + restart ISTA) is the fallback
+- [~] BMW coding (EsysUltra / E-Sys) alongside ISTA diagnosis. Both are **Java UIs**
+      (EsysUltra = JavaFX+Swing under a C++/JVM shell, process `ESysUltra.exe`; E-Sys =
+      Java Swing, runs as `javaw.exe` with `esysCore.jar`), so they expose little to
+      UIAutomation - the read path is **screenshot + read it visually**, the drive path
+      is **coordinate `click()`** (elevated, so it lands in the elevated apps).
+      `list_controls(app="EsysUltra")` is a probe/bonus (rich only if the Java Access
+      Bridge is enabled). **Safety:** read/navigate (Read FA/VO, Read SVT, FDL editor,
+      DTCs) is autonomous; every write-to-car (Code FDL, VO/FA write, TAL flash) stays
+      human-confirmed, Full Backup first. *(pending post-reboot verification)*
 - [ ] `read_faults()` - fault memory as structured data (find ISTA's export/session
       files rather than scraping the UI; candidates under `C:\ProgramData\BMW\ISPI`)
 - [ ] A guided "diagnose this fault" prompt that chains read_state -> reason -> next step

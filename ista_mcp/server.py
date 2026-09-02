@@ -382,6 +382,11 @@ def screenshot(fmt: str = "jpg") -> Image:
     fmt="jpg" (default) returns a compressed JPEG - a few tens of KB, best over a
     hotspot. fmt="png" returns the lossless ~600 KB frame when you need pixel detail.
 
+    For the BMW coding apps (EsysUltra, E-Sys) this IS the read path: they're Java
+    UIs with no tempWebView.html and near-empty UIA, so you read the screen visually
+    from this frame and act with coordinate click()/type_text(). Keep the app
+    maximised so it fills the 1536x864 capture.
+
     For watching ISTA fluidly (many frames), call start_stream() once and then
     latest_frame() repeatedly - that path skips the scheduler trigger and the wait."""
     want_png = str(fmt).lower() in ("png", "p")
@@ -591,8 +596,17 @@ def ista_elevation(mode: str = "status") -> str:
 
 @mcp.tool()
 def click(x: int, y: int) -> str:
-    """(opt-in) Left-click at screen coordinates. Take a screenshot() first to find
-    the target. Do NOT use during a flash/coding/actuator write."""
+    """(opt-in) Left-click at screen coordinates - the PRIMARY way to drive the BMW
+    coding apps EsysUltra and E-Sys, which are Java (Swing/JavaFX) and expose little
+    to UIAutomation. Flow: screenshot(), read the frame visually, pick the pixel,
+    click. Coordinates are in the 1536x864 capture space. Runs elevated so it lands
+    even in an elevated window.
+
+    HARD RULE (BMW coding writes to the car - a bad write bricks an ECU): only click
+    READ / navigate controls autonomously (Read FA/VO, Read SVT, open the FDL editor,
+    read DTCs/NCD). NEVER autonomously click a WRITE-to-car action - "Code FDL", any
+    VO/FA write, or TAL execute/flash - those stay human-confirmed, and EsysUltra's
+    Full Backup must run first. Never click anything during an active flash/write."""
     return _send(f"CLICK {x} {y}")
 
 
