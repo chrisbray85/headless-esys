@@ -10,9 +10,11 @@ Built and proven by a hobbyist on a 2018 G20 320d: three ECUs coded and verified
 one evening, with the agent doing the driving and the owner giving the go for each
 write. The guide, the coordinate maps and the gotchas from that session are all here.
 
-> This is a hobby tool for coding your own car. It does not contain or redistribute any
-> BMW software or data. You bring your own licensed EsysUltra/E-Sys and psdzdata, and
-> your own laptop.
+> **Nothing is given away here.** This repo contains no BMW software, no E-Sys, no
+> EsysUltra, no psdzdata and no licence. It is an MCP server plus documentation for
+> people who **already have a working E-Sys/EsysUltra setup** and want an AI agent to
+> drive it. You bring your own licensed tools, your own data, your own laptop and your
+> own car.
 
 ## What it is, in plain words
 
@@ -35,9 +37,11 @@ typed, not clicked.
 
 ## Credits
 
-- **E-Sys** is BMW's engineering tool; **EsysUltra** is the independent front end that
-  makes it usable (cheat-sheet pane, real-time backups, UltraAdmin). This project only
-  drives it through its normal window; all the heavy lifting is theirs.
+- **E-Sys** is BMW's engineering tool. **EsysUltra** (<https://esysultra.com>) is the
+  independent front end that makes it usable: cheat-sheet pane, real-time backups,
+  UltraAdmin launcher, DTC reader. It is what this project was built and tested against,
+  and it is the recommended way to run E-Sys. This project only drives it through its
+  normal window; all the heavy lifting is theirs. Buy a licence from them.
 - **Cheat sheets** in [cheatsheets/](cheatsheets/) are community work, each file carrying
   its author's name; see [cheatsheets/README.md](cheatsheets/README.md).
 - **ISTA+** is BMW's dealer diagnostic system. The text-first read tools here were first
