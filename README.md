@@ -1,6 +1,8 @@
 # ISTA-MCP
 
 Drive a remote BMW **ISTA+** garage laptop from any MCP client (Claude Code, etc).
+
+> New here for the car side? Read **[docs/GUIDE.md](docs/GUIDE.md)** — a hobbyist guide to coding a G20 with EsysUltra (settings, connect, read, backup, code, verify, gotchas, what was coded, secure-coding caveat). Window coordinate maps live in [docs/ui-controls.md](docs/ui-controls.md).
 Turns a manual "SSH in, screenshot ISTA, read the fault, reason about it, decide the
 next click" workflow into repeatable tools.
 
@@ -134,7 +136,7 @@ to the floor.
 
 ```bash
 pip install -r requirements.txt        # needs the `mcp` SDK
-export ISTA_MCP_SSH="user@100.x.y.z"   # your garage laptop over Tailscale
+export ISTA_MCP_SSH="user@100.x.y.z"          # your garage laptop over Tailscale (required)
 # optional, only when you want it to click:
 # export ISTA_MCP_ALLOW_INPUT=1
 ```

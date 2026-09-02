@@ -48,7 +48,7 @@ from html.parser import HTMLParser
 
 from mcp.server.mcpserver import Image, MCPServer
 
-GARAGE = os.environ.get("ISTA_MCP_SSH", "user@100.x.y.z")
+GARAGE = os.environ.get("ISTA_MCP_SSH", "user@garage-laptop")  # set ISTA_MCP_SSH to your laptop, e.g. user@100.x.y.z
 REMOTE_DIR = "C:/ista-mcp"                 # scp target (Windows OpenSSH takes '/')
 REMOTE_WIN = REMOTE_DIR.replace("/", "\\")  # C:\ista-mcp - for schtasks / cmd builtins
 ISTA_LOGS = r"C:\ProgramData\BMW\ISPI\Logs\TRIC\ISTA"

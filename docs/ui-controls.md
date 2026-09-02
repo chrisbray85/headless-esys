@@ -21,7 +21,7 @@ matches on Name only, so for these use coordinate `click()` at the centre.
 | ControlType | AutomationId | X,Y,W,H | Centre | Enabled | What it is |
 |---|---|---|---|---|---|
 | Button | ESettings | 649,236,45,36 | 671,254 | yes | "•••" on the 22.06 card — E-Sys profile settings |
-| Button | LaunchButton | 651,422,49,54 | 675,449 | yes | orange ▶ on the 22.06 card — launches EsysUltra. **Do not click autonomously (Chris, 2 Sep 2026).** |
+| Button | LaunchButton | 651,422,49,54 | 675,449 | yes | orange ▶ on the 22.06 card — launches EsysUltra. **Do not click autonomously — the owner decides when EsysUltra launches.** |
 | Button | Shortcut | 601,424,52,49 | 627,448 | yes | ↗ on the 22.06 card — create desktop shortcut |
 | ListItem | Main | 410,221,38,72 | 429,257 | yes | left rail: home |
 | ListItem | Global | 410,292,38,73 | 429,328 | yes | left rail: globe (global settings) |
@@ -47,7 +47,7 @@ esysultra.com/manual. Rail `Main` (429,257) returns to the launcher card.
 ### E-Sys profile settings panel (opened via `ESettings` "•••") — 2 Sep 2026 18:08
 
 Overlays the home tab; all home-tab controls above stay present underneath.
-Values as set on Chris's install:
+Values as set on the reference install:
 
 | Setting | Value | Control | AutomationId / Name | X,Y,W,H |
 |---|---|---|---|---|
@@ -58,7 +58,7 @@ Values as set on Chris's install:
 | Language | `English` | ComboBox | `LanguageBox` | 1009,350,154,31 |
 | Dark Mode | unchecked | CheckBox | `DarkModeCheckBox` / Name `Dark Mode` | 693,518,117,23 |
 
-**KIS Exclusion** — 21 checkboxes, every one `IsChecked:True` = shown GREEN = series LOADED, i.e. NOT excluded (Chris confirmed 2 Sep 2026: "nothing is ticked to exclude, they are all green"). Untick = exclude. Grid laid out 58x30 starting at 692,415 (row pitch 30, column pitch 58; the CheckBox
+**KIS Exclusion** — 21 checkboxes, every one `IsChecked:True` = shown GREEN = series LOADED, i.e. NOT excluded (confirmed by the owner: "nothing is ticked to exclude, they are all green"). Untick = exclude. Grid laid out 58x30 starting at 692,415 (row pitch 30, column pitch 58; the CheckBox
 itself is 38x20 at +10,+5). Named by the chassis/series code:
 
 | Row (y) | Codes left→right (x = 702, 760, 818, 876, 934, 992, 1050, 1108) |
@@ -96,7 +96,7 @@ problem (`C:\Program Files\ESysUltra\*` is already excluded).
 
 Fix: `C:\ista-mcp\openadmin.cmd` = `start "" /d "C:\Program Files\ESysUltra"
 "C:\Program Files\ESysUltra\UltraAdmin.exe"`, run via scheduled task **OpenAdmin**
-(`/it`, user chris). Then `click(675,449)` on ▶. `ESysUltra.exe` starts as a child of
+(`/it`, your Windows user). Then `click(675,449)` on ▶. `ESysUltra.exe` starts as a child of
 UltraAdmin (won't run standalone — the `OpenUltra` task that launches it directly is
 useless; still points at openultra.cmd). Startup: splash → "Creating log file" →
 "Loading KIS Data" (~1.6 GB working set, 1–2 min with all 21 series loaded).
