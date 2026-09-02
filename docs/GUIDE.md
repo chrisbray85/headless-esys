@@ -1,7 +1,7 @@
 # A diagnostic session with the agent, start to finish
 
-Written from a real one: a 2018 G20 320d with a boost complaint, one evening, the agent
-driving ISTA+ on the garage laptop while the owner was at the car.
+Written from a real one: a G20 with a charge-pressure fault, the agent driving ISTA+
+on the garage laptop while the owner was at the car.
 
 ## 1. Kit
 
@@ -24,26 +24,25 @@ non-elevated helper are then discarded by Windows and it looks like ISTA ignores
 The input task here runs elevated, so it works either way; `ista_elevation("status")`
 tells you the state and `read_state()` warns if it matters.
 
-## 3. The 244C00 case
+## 3. A real case: a charge-pressure fault
 
-**Symptom:** occasional boost hesitation, a charge-pressure fault stored.
+**Symptom:** a stored charge-pressure control fault.
 
 **What the agent did:**
 
 1. `read_state()` with ISTA on the fault list. It read the codes as text and explained
-   each one. The relevant one: `244C00`, charge-pressure control, pressure converter.
-2. Opened the fault; `read_doc()` pulled BMW's description and the test plan text in one
-   call, in full, with the German translated.
-3. Looked the code up on the web for a B47 G20. Community threads pointed at two things
-   BMW's plan also covers: the electro-pneumatic pressure converter itself, and the
-   vacuum lines to it, one of which routes near the oil dipstick and kinks.
-4. Walked the test plan: check vacuum supply, check the converter's control line, inspect
-   the hose routing. The owner found the kinked hose at the dipstick.
-5. Fixed, fault cleared with a typed go, re-read: clean. The next full read a day later
-   still showed no 244C00.
+   each one in plain English.
+2. Opened the relevant fault; `read_doc()` pulled BMW's description and the full test
+   plan in one call, German translated.
+3. Looked the code up on the web for that engine, and reported where the community's
+   experience agreed with BMW's plan and where it didn't.
+4. Walked the test plan one step at a time, asking the owner for each check, until it
+   reached the component BMW's plan blamed.
+5. Component replaced. Fault cleared with a typed go, re-read: clean, and still clean
+   on a full read the next day.
 
-**What it didn't do:** it didn't guess. Where the plan asked for a vacuum reading, it
-said so and waited. It didn't clear the fault until told to.
+**What it didn't do:** it didn't guess. Where the plan asked for a measurement it
+couldn't take, it said so and waited. It didn't clear the fault until told to.
 
 ## 4. Gotchas we met
 

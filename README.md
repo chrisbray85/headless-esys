@@ -6,9 +6,9 @@ can read ISTA's fault memory and test plans as text, look the problem up on the 
 explain it, and click through ISTA's screens for you. You stay in charge of anything
 that writes to the car.
 
-Built and proven by a hobbyist on a 2018 G20 320d: the agent read a 244C00 turbo
-pressure-converter fault, pulled BMW's own test plan and the vacuum diagram, and
-pointed at a kinked hose by the dipstick. Fixed, and the next read showed the code gone.
+Built and proven by a hobbyist on a G20: the agent read a stored charge-pressure fault,
+pulled BMW's own test plan as text and walked it to the faulty component. Part
+replaced, fault gone on the next read.
 
 > **Nothing is given away here.** This repo contains no BMW software or data. It is an
 > MCP server plus documentation for people who **already run ISTA+** on a laptop and
