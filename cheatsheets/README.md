@@ -30,8 +30,9 @@ add one, keep the author attribute and re-run `python scripts/cheat_index.py`:
 ## Use
 
 - **In EsysUltra:** copy the `.xml` files into `C:\Program Files\ESysUltra\CheatSheets\`.
-  In the FDL editor press **Reload** in the cheat pane, search, select, **Review**,
-  then **Apply**. EsysUltra ships most of these already.
+  In the FDL editor tick **Auto Fetch** (or press **Reload**), search, select,
+  **Review**, then **Apply**. EsysUltra ships most of these already. The pane's own
+  documentation: <https://esysultra.com/details-CheatSheets.html>.
 - **In E-Sys Launcher Pro:** same files, its own cheat folder.
 - **By hand:** look the property up in [INDEX.md](INDEX.md) and edit it in the FDL
   editor.

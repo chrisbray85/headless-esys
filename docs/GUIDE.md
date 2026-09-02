@@ -96,10 +96,12 @@ undo for each module.
 3. Expand the CAFD (plus sign). A child row appears with the same CAFD name.
 4. **Right-click the child row → Edit NCD.** The FDL editor opens.
 5. In the editor, either:
-   - **Cheat sheet route (fast):** press **Reload** in the right-hand pane, type in
-     the pane's search box, click the entry, press **Review** to see current value →
+   - **Cheat sheet route (fast):** tick **Auto Fetch** once (top right of the pane)
+     so sheets load whenever a file opens; otherwise press **Reload**. Type in the
+     pane's search box, click the entry, press **Review** to see current value →
      new value, close the review, press **Apply**. The log pane confirms
-     `section > PROPERTY |> value … Done.` Repeat for each entry.
+     `section > PROPERTY |> value … Done.` Repeat for each entry. EsysUltra's own
+     notes on the pane: <https://esysultra.com/details-CheatSheets.html>.
    - **Manual route:** type the property name in "Search for", press Search, expand
      the property, expand "Ausgelesen", right-click the value → Edit, choose the new
      value from the dropdown, Enter.

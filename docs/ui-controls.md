@@ -196,7 +196,7 @@ Review — don't Apply blind. Keep each `run()` helper sequence under ~45 s of s
 (the tool times out at 60 s and you lose the result, not the actions). Every E-Sys report is MODAL — a click aimed elsewhere hits it. Java popup items: pick by keyboard. Engine OFF, ignition ON.
 
 ### Cheat-sheet coding path (fastest, proven on HU_MGU + IHKA4, 2 Sep 2026)
-In the FDL editor: **Reload** (1826,864) → cheat search field 1445,657 (`TYPE ^a<word>`) →
+In the FDL editor: tick **Auto Fetch** (1804,240) once, else **Reload** (1826,864) → cheat search field 1445,657 (`TYPE ^a<word>`) →
 list rows start y=268, pitch 22 → click row → **Review** (1318,864; review window close
 X 1546,286; EMPTY review = property not in this CAFD version, do NOT apply) → **Apply**
 (1572,864; first time shows an info popup, OK 1571,594; tick "Disable disclaimer" 1523,240)
