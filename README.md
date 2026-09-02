@@ -1,232 +1,178 @@
 # ISTA-MCP
 
-Drive a remote BMW **ISTA+** garage laptop from any MCP client (Claude Code, etc).
+**Let an AI agent see and drive a BMW coding laptop.** An MCP server that connects a
+Claude (or any MCP client) to a Windows laptop at the car, so the agent can read the
+screen, read files and logs, and, when you allow it, click and type into
+**EsysUltra / E-Sys** for coding and **ISTA+** for diagnosis. You stay in charge of
+every write to the car.
 
-> New here for the car side? Read **[docs/GUIDE.md](docs/GUIDE.md)** — a hobbyist guide to coding a G20 with EsysUltra (settings, connect, read, backup, code, verify, gotchas, what was coded, secure-coding caveat). Window coordinate maps live in [docs/ui-controls.md](docs/ui-controls.md).
-Turns a manual "SSH in, screenshot ISTA, read the fault, reason about it, decide the
-next click" workflow into repeatable tools.
+Built and proven by a hobbyist on a 2018 G20 320d: three ECUs coded and verified in
+one evening, with the agent doing the driving and the owner giving the go for each
+write. The guide, the coordinate maps and the gotchas from that session are all here.
 
-Built for one person diagnosing their own cars. It does not redistribute BMW's data;
-it reads the screen and logs of an ISTA install you already run.
+> This is a hobby tool for coding your own car. It does not contain or redistribute any
+> BMW software or data. You bring your own licensed EsysUltra/E-Sys and psdzdata, and
+> your own laptop.
 
-## Why
+## What it is, in plain words
 
-ISTA holds BMW's entire diagnostic knowledge base (fault databases, guided test plans,
-wiring, repair procedures) but its UI is slow to drive by hand and impossible to
-automate through. This wraps a headless garage laptop so an LLM can *read* ISTA's
-content as text, *see* its graphs, and - opt-in - *act* on it, while the human stays
-in the loop for anything that touches the car.
+You have a laptop in the garage with E-Sys or EsysUltra on it, plugged into the car.
+Normally you sit at that laptop and click through the screens yourself. With this, the
+laptop can sit there with nobody at it (headless), and an AI agent on your phone or
+computer does the clicking for you, talking to you in chat:
 
-## Architecture
+- It **sees** the laptop screen and reads what is on it, including E-Sys's German
+  property names and comments (`Kommentar=Status MSAFahrerwunsch …`), which it
+  translates and explains as it goes.
+- It **finds** the coding you asked for in the community cheat sheets, opens the right
+  module, shows you the current value and what it will become.
+- It **waits for you to say go**, then writes it, reads it back, and proves the car
+  holds the new value.
+- It **keeps the receipts**: before/after files, a timestamped log, the fault list.
+
+You still plug the cable in, turn the ignition on, and say go. Everything else is
+typed, not clicked.
+
+## Credits
+
+- **E-Sys** is BMW's engineering tool; **EsysUltra** is the independent front end that
+  makes it usable (cheat-sheet pane, real-time backups, UltraAdmin). This project only
+  drives it through its normal window; all the heavy lifting is theirs.
+- **Cheat sheets** in [cheatsheets/](cheatsheets/) are community work, each file carrying
+  its author's name; see [cheatsheets/README.md](cheatsheets/README.md).
+- **ISTA+** is BMW's dealer diagnostic system. The text-first read tools here were first
+  built for it and still work; it is not required for coding.
+
+## What it does
+
+| You want to | The agent does |
+|---|---|
+| Know what is wrong with the car | Opens the DTC reader, reads all modules, saves the list, explains the codes |
+| Change a coding | Reads the module (backup), applies the cheat or edits the property, shows you before → after, waits for your **go**, codes it, reads it back to prove it |
+| Check the car's software level | Reads the vehicle order and SVT, compares to your psdzdata |
+| Drive a slow UI without the mouse | Screenshots, coordinate clicks, keyboard menu picks, in one helper pass |
+| Not brick anything | Refuses to write without an explicit go per ECU; never clicks during a write; verifies by file comparison |
+
+## How it works
 
 ```
-MCP client (Claude)  ──stdio──▶  ista_mcp/server.py  ──ssh/scp over Tailscale──▶  Garage laptop (Windows + ISTA+)
-                                                                                   ├─ state.ps1  (ONE call: doc HTML + frame + ISTA status)
-                                                                                   ├─ grab.ps1   (one-shot + continuous-loop capture, interactive session)
-                                                                                   ├─ input.ps1  (UIA click-by-name / coordinate click / type / key, opt-in)
-                                                                                   └─ elev.ps1   (RUNASADMIN layer on/off - why clicks land or don't)
+MCP client (Claude Code)  ─stdio─▶  ista_mcp/server.py  ─ssh/scp over Tailscale─▶  Laptop at the car (Windows)
+                                                                                    ├─ grab.ps1      screen capture (DPI-aware, JPEG)
+                                                                                    ├─ input.ps1     click / right-click / double-click / keys / scroll / UIA
+                                                                                    ├─ state.ps1     ISTA's rendered document as text, in one call
+                                                                                    ├─ diagnose.ps1  why capture or input is not working
+                                                                                    ├─ caltarget.ps1 calibration target window
+                                                                                    └─ run-hidden.vbs launches the above with no console window
 ```
 
-The Windows box runs ISTA in a logged-in desktop session. SSH lands in a non-interactive
-session (Windows "Session 0"), so screen capture and input are executed via `schtasks`
-with the `/it` (interactive token) flag - the one trick that reaches the real desktop.
-`state.ps1` and `elev.ps1` only read files / HKCU, so they run directly over SSH.
+SSH lands in Windows "Session 0", which cannot see the desktop. Capture and input run
+as scheduled tasks with the interactive token (`/it`), the input task elevated, and are
+launched through a VBScript so no console window flashes on the desktop (a flash steals
+focus and closes Java popup menus). Everything the agent needs from the laptop comes
+back as text or a small JPEG, so it works over a phone hotspot.
 
-### The two design rules (learned diagnosing a real fault)
+## Quick start
 
-1. **Read text as text, not as pixels.** ISTA renders whatever document/procedure/
-   fault description it is displaying as HTML to `%LOCALAPPDATA%\Temp\tempWebView.html`.
-   `read_doc()` / `read_state()` pull and parse that: full text in one round-trip - no
-   OCR, no screen-edge clipping, no screenshot-scp-read-repeat loop. Screenshots are
-   reserved for genuinely graphical things (live actuation-test traces, dialog state).
-2. **Input only lands in a non-elevated ISTA.** ISTA set to always-run-as-admin means
-   Windows UIPI silently discards injected clicks from a medium-integrity helper -
-   screenshots keep working, so it looks like ISTA "ignored" the click. Diagnosis
-   doesn't need admin (only programming/coding does): `ista_elevation("off")` +
-   restart ISTA, and clicks land. `click_control(name)` then drives ISTA's WPF UI via
-   UIAutomation (Invoke/Select by control name - robust against layout shifts),
-   falling back to coordinate clicks only when a control exposes no pattern.
+**Laptop (Windows 10/11):** OpenSSH server enabled, your SSH user is a local admin, a
+desktop session logged in (auto-login recommended), Tailscale or another route in,
+EsysUltra/E-Sys installed with psdzdata. Set UltraAdmin's Memory to 4096 if you have
+16 GB.
+
+**Your machine:**
+
+```bash
+git clone https://github.com/chrisbray85/ISTA-MCP.git && cd ISTA-MCP
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+claude mcp add-json ista-garage --scope user '{
+  "command": "'$PWD'/.venv/bin/python",
+  "args": ["'$PWD'/ista_mcp/server.py"],
+  "env": { "ISTA_MCP_SSH": "user@100.x.y.z", "ISTA_MCP_ALLOW_INPUT": "1" }
+}'
+```
+
+**First session, in this order:** `diagnose()` → `setup()` → `calibrate()` →
+`screenshot()`. Then hand the agent [AGENTS.md](AGENTS.md); it is written for the agent
+to read.
+
+From a terminal, `scripts/smoke.py --deploy` runs setup plus a read-only check of every
+tool and prints PASS/FAIL per step.
+
+## Calibration self-test
+
+`calibrate()` opens a full-screen target on the laptop with five numbered markers, reads
+the physical screen size, clicks each marker through the normal input path, and reports:
+
+```
+screen 1920x1080 · capture 1920x1080 (match) · hits 5/5 · max error 1 px
+```
+
+Anything less means the agent's clicks would land in the wrong place. The usual causes,
+all handled by `setup()` on a fresh laptop: Windows display scaling (the helpers are
+DPI-aware), the laptop on battery (scheduled tasks default to "don't start on
+batteries"), Defender quarantining the scripts (an exclusion is added), or no desktop
+logged in (`diagnose()` says so).
 
 ## Tools
 
 | Tool | Kind | What |
-|------|------|------|
-| `setup()` | install | Copies the PS1 helpers up and registers the scheduled tasks. Run once (and after editing the PS1s). |
-| `read_state(with_frame, fresh_ms)` | read | **Primary read.** One round-trip: parsed text of ISTA's displayed document + one JPEG frame + ISTA running/elevated status. |
-| `read_doc(raw)` | read | Just the displayed document's full text (from `tempWebView.html`), fastest path. `raw=True` for the untouched HTML. |
-| `list_controls(name_filter)` | read | ISTA's actionable controls by real UIA name (buttons, tabs, items). The menu for `click_control()`. |
-| `ista_elevation(mode)` | admin | `status` / `off` / `on` for the RUNASADMIN layer - the reason clicks do or don't land. |
-| `screenshot(fmt="jpg")` | read | One-shot live screen as an image - for graphs/dialog state. `jpg` = compressed (~tens of KB, default); `png` = lossless (~600 KB) fallback. |
-| `start_stream(quality, interval_ms, scale, max_seconds)` | read | Start a continuous capture loop on the laptop writing the newest frame to `live.jpg`. |
-| `latest_frame()` | read | **Fast/near-live:** pull the newest streamed frame - no scheduler trigger, no wait. Falls back to `screenshot()` if no stream is running. |
-| `stop_stream()` | read | Stop the capture loop (saves hotspot bandwidth + CPU). |
-| `list_sessions()` | read | Recent ISTA log-session folders, newest first. |
-| `read_log(path, contains, tail)` | read | Read/grep/tail any file (ISTA logs, .properties, dumps). |
-| `run(command)` | read | Read-only shell on the laptop (dir, reg query, tasklist, findstr, PowerShell). |
-| `click_control(name)` | **opt-in** | Act on an ISTA control **by name** via UIAutomation (Invoke/Select/Toggle/Expand, centre-click fallback). Preferred over `click()`. |
-| `click(x, y)` | **opt-in** | Left-click at coordinates (fallback when a control exposes no name). |
-| `type_text(text)` | **opt-in** | Type into the focused field. |
-| `press_key(key)` | **opt-in** | ENTER / TAB / ESC. |
-| `scroll(notches)` | **opt-in** | Mouse-wheel the window under the cursor (negative = down). |
+|---|---|---|
+| `diagnose()` | check | Names why capture/input is or isn't working: desktop, Defender, scheduler, battery, app state. |
+| `setup()` | install | Pushes the helper scripts, registers the tasks, clears battery limits, adds the Defender exclusion. Idempotent. |
+| `calibrate()` | check | Screen-size and five-point click accuracy test (needs input enabled). |
+| `screenshot(fmt)` | read | One-shot frame, JPEG by default. The coordinate space for every click. |
+| `start_stream()` / `latest_frame()` / `stop_stream()` | read | Near-live frames from a capture loop; cheap over a hotspot. |
+| `read_state()` / `read_doc()` | read | ISTA's currently displayed document as text (no OCR). |
+| `list_controls(app, name_filter)` | read | Real control names and positions for WPF apps (UltraAdmin, ISTA). Java apps return nothing; use the screen. |
+| `list_sessions()` / `read_log()` / `run()` | read | ISTA session folders, any file, any read-only command on the laptop. |
+| `click(x,y)` / `right_click` / `double_click` | input | Coordinate mouse actions (elevated, so they land in admin apps). |
+| `input_sequence([...])` | input | Several actions in one helper pass, e.g. open a popup menu and pick an item by keyboard. |
+| `type_text` / `press_key` / `scroll` | input | Keyboard and wheel. |
+| `click_control(name, app)` | input | Act on a WPF control by name via UI Automation. |
+| `ista_elevation(mode)` | admin | Read or change ISTA's run-as-admin layer. |
 
-## Fast capture / near-live streaming
+Input tools exist only when `ISTA_MCP_ALLOW_INPUT=1` is set. Every input tool's help
+text carries the rule: read and navigate freely, never a write to the car without the
+human's go.
 
-Watching ISTA used to mean ~10-15 s per still: trigger a scheduled task, wait a fixed
-4 s, then `scp` a ~600 KB PNG back - and each `ssh`/`scp` paid a fresh handshake, which
-hurts most over a phone hotspot. Three changes attack every part of that:
+## Documentation
 
-1. **Compressed JPEG instead of PNG** (`grab.ps1`). A 1536x864 ISTA frame drops from
-   ~600 KB (PNG) to roughly:
+- [docs/GUIDE.md](docs/GUIDE.md): the hobbyist coding guide. UltraAdmin settings,
+  connect, read, backup, code, verify, every gotcha met, what was coded on a G20 320d
+  with property names, fault notes, and the secure-coding caveat before you update
+  software.
+- [docs/ui-controls.md](docs/ui-controls.md): coordinate maps for UltraAdmin, the
+  EsysUltra Coding view, the FDL editor, the DTC reader and the cheat pane, plus the
+  proven click sequences.
+- [cheatsheets/INDEX.md](cheatsheets/INDEX.md): every cheat entry by series, ECU, CAFD
+  and property, generated from the XMLs.
+- [AGENTS.md](AGENTS.md): the operating brief an agent reads before its first tool call.
 
-   | Setting | ~Size | vs PNG | Notes |
-   |---------|-------|--------|-------|
-   | JPEG q55, full res (default) | ~60-90 KB | ~-85% | UI text stays crisp |
-   | JPEG q45, scale 0.75 | ~30-45 KB | ~-93% | large ISTA text still readable; tiny digits soften |
-   | PNG full (`fmt="png"`) | ~600 KB | - | lossless fallback for pixel-peeping a graph |
+## Proven so far
 
-2. **Continuous capture loop** (`start_stream()` -> `IstaGrabLoop`). A single
-   always-running PowerShell loop in the interactive session writes the newest frame to
-   `C:\ista-mcp\live.jpg` every ~`interval_ms` (atomic temp-then-rename). `latest_frame()`
-   just pulls that file - **no per-frame `schtasks /run`, no 4 s sleep**. Stops cleanly
-   via a stop-sentinel file (`stop_stream()`), and auto-stops after `max_seconds` so a
-   forgotten stream can't drain data/CPU. On exit it deletes `live.jpg`, so
-   `latest_frame()` can tell the stream is gone and fall back to a one-shot.
-
-3. **SSH connection multiplexing** (`ControlMaster` in `server.py`). One tunnel is
-   opened and kept warm for 2 min, so every `ssh`/`scp` after the first skips the
-   TCP+SSH handshake - the part that stings most on a high-latency hotspot. Helps every
-   tool, not just capture.
-
-Net effect: the near-live path (`start_stream()` once, then `latest_frame()`) is a
-single small `scp` over a warm tunnel - typically well under a second per frame instead
-of 10-15 s.
-
-### Why not a real MJPEG / ffmpeg stream?
-
-Considered and **not** recommended here (over a hotspot, for an LLM viewer):
-
-- **An LLM consumes discrete frames, not video.** It looks at a still, reasons, acts,
-  looks again. A continuous 15-30 fps stream buys nothing a ~1 fps pull-on-demand
-  doesn't - the model can't "watch" between tool calls.
-- **A push stream burns data continuously.** Even 2 fps x 70 KB is ~1 Mbit/s sustained
-  whether or not anyone is looking, competing with ISTA's own online needs on a metered
-  hotspot. Pull-on-demand only moves bytes when the model actually wants a frame.
-- **`ffmpeg gdigrab` adds a dependency and CPU load** and *still* has to run in the
-  interactive session (the same Session 0 limitation), on a laptop already busy with
-  ISTA - for a stream you'd only ever sample stills from anyway.
-
-A tiny HTTP `/frame.jpg` endpoint bound to the Tailscale IP would shave a little more
-per-frame latency than multiplexed `scp` (no scp process spawn), but it means a
-long-running service + open port on the garage box for a marginal win. **Recommendation:
-pull-on-demand compressed JPEGs via the capture loop is the right trade over a hotspot.**
-Keep the HTTP endpoint on the shelf only if per-frame latency ever needs to be shaved
-to the floor.
-
-## Safety
-
-- **Input is off by default.** The click/type/key tools do nothing unless
-  `ISTA_MCP_ALLOW_INPUT=1` is set.
-- **Never enable input during a flash / coding / actuator write on a live car.**
-  A mis-timed click there can brick a module. Read-only observation is always safe.
-- **Personal use.** Reading your own ISTA install for your own cars is the intended use.
-  Building a public/commercial product on ISTA's licensed content is not - that is what
-  BMW's paid Aftersales APIs license.
-
-## Setup
-
-```bash
-pip install -r requirements.txt        # needs the `mcp` SDK
-export ISTA_MCP_SSH="user@100.x.y.z"          # your garage laptop over Tailscale (required)
-# optional, only when you want it to click:
-# export ISTA_MCP_ALLOW_INPUT=1
-```
-
-Register with Claude Code:
-
-```bash
-claude mcp add ista-garage --scope user -- python /path/to/ista-mcp/ista_mcp/server.py
-```
-
-Then, once connected, call `setup()` a single time to install the helper scripts and
-scheduled tasks on the laptop. After that, `screenshot()` and the read tools work.
-
-Prerequisites on the laptop: SSH server enabled, a logged-in desktop session, ISTA+
-installed. All of these are already true for the garage build.
-
-## First session after the v2 (text-first) upgrade
-
-> Do this when no car job is running. Nothing here writes to a vehicle.
-
-One command from the Mac deploys and verifies everything:
-
-```bash
-.venv/bin/python scripts/smoke.py --deploy
-```
-
-It checks, in order: SSH; `setup()` (adds the Defender exclusion, pushes all four
-PS1s, registers tasks); `ista_elevation("status")`; `read_doc()`; `read_state()`
-(text + frame in one call); `screenshot()`; a `PING` through the input task;
-`list_controls()`; `list_sessions()`. Each step prints PASS/FAIL and keeps going.
-
-**Then, to make clicks land (one-time):** `ista_elevation("off")` and restart ISTA
-normally (not "run as administrator"). Flip back with `ista_elevation("on")` before a
-programming/coding session. While ISTA runs elevated, `list_controls()` still works
-(UIA reads cross the integrity boundary) but `click_control()`/`click()` are discarded
-by UIPI - `read_state()`'s status line warns about exactly this.
-
-### Two gotchas found on first live deploy (2 Sep 2026)
-
-- **Windows Defender silently quarantines the scripts.** Screen-capture + SendInput
-  PowerShell trips Defender's `ScriptContainedMaliciousContent` heuristic, so
-  `screenshot()` just produces no frame with no obvious error. ISTA's own dirs
-  (`C:\BMW`, `C:\ISTA-setup`, ...) were already Defender-excluded, which is the only
-  reason the earlier hand-built setup worked. `setup()` now adds `C:\ista-mcp` to the
-  exclusion list automatically (best-effort; needs the admin SSH token OpenSSH grants
-  an admin user). Undo by hand with `Remove-MpPreference -ExclusionPath C:\ista-mcp`.
-- **Capture/input need the console session free.** The `/it` tasks run in the
-  logged-on console session; if an installer or a UAC modal is holding that session
-  (or it's disconnected), the task launches (`schtasks` returns 0) but the payload
-  lands in Session 0 and never reaches the desktop - empty screenshots, unlogged
-  input. Make sure a desktop is logged in and idle. `read_doc()`/`read_state()` text
-  still works regardless (it's a plain file read over SSH).
-
-**Confirmed live (2 Sep 2026):** SSH, `setup()`, `read_doc()`/`read_state()` text
-(after a UTF-8 output fix - `tempWebView.html` is real and parses), `list_sessions()`,
-Defender exclusion, ISTA integrity probe (ISTA was running HIGH/elevated).
-**Still to verify with the console session free:** task-driven `screenshot()`/frame
-capture, `list_controls()` UIA tree contents (are test-plan buttons named?),
-`click_control()` after dropping elevation, `tempWebView.html` freshness per ISTA view.
+- Capture and input on a 1920×1080 laptop at 125% scaling, on battery, over a phone
+  hotspot that dropped twice.
+- UltraAdmin driven by UI Automation; EsysUltra driven by screenshot + coordinates,
+  including Java popup menus and the cheat-sheet pane.
+- On a 2018 G20 320d: Start/Stop memory, eight head-unit changes, colder air-con, all
+  read back byte-identical; full DTC read of 21 modules.
+- ISTA+: text-first document reads and UI Automation clicks were built and checked
+  earlier; a full ISTA diagnostic session driven end to end is the next thing to prove.
 
 ## Roadmap
 
-- [x] Read-only core: screenshot, logs, sessions, shell (proven over SSH)
-- [x] Fast capture: compressed JPEG + continuous-loop `latest_frame()` + SSH multiplexing (near-live over a hotspot)
-- [x] Opt-in coordinate input: click / type / key
-- [x] **Text-first reads** - `read_doc()`/`read_state()` parse ISTA's own rendered HTML
-      (`tempWebView.html`): full text, one round-trip, no OCR *(needs live verify)*
-- [x] **UI Automation input** - `list_controls()` + `click_control(name)` drive ISTA's
-      WPF controls by name instead of x/y *(needs live verify)*
-- [x] Elevated input past UIPI - the IstaInput task runs `/rl HIGHEST`, so clicks
-      land into an *elevated* ISTA with no restart (works because the SSH login is
-      admin; verified RunLevel=Highest, click execution pending the post-reboot test).
-      `ista_elevation()` (toggle the RUNASADMIN layer + restart ISTA) is the fallback
-- [~] BMW coding (EsysUltra / E-Sys) alongside ISTA diagnosis. Both are **Java UIs**
-      (EsysUltra = JavaFX+Swing under a C++/JVM shell, process `ESysUltra.exe`; E-Sys =
-      Java Swing, runs as `javaw.exe` with `esysCore.jar`), so they expose little to
-      UIAutomation - the read path is **screenshot + read it visually**, the drive path
-      is **coordinate `click()`** (elevated, so it lands in the elevated apps).
-      `list_controls(app="EsysUltra")` is a probe/bonus (rich only if the Java Access
-      Bridge is enabled). **Safety:** read/navigate (Read FA/VO, Read SVT, FDL editor,
-      DTCs) is autonomous; every write-to-car (Code FDL, VO/FA write, TAL flash) stays
-      human-confirmed, Full Backup first. *(pending post-reboot verification)*
-- [ ] `read_faults()` - fault memory as structured data (find ISTA's export/session
-      files rather than scraping the UI; candidates under `C:\ProgramData\BMW\ISPI`)
-- [ ] A guided "diagnose this fault" prompt that chains read_state -> reason -> next step
-- [ ] Session recorder: log every read + action as a repeatable diagnostic script
+- `read_faults()` as structured data from EsysUltra's saved DTC file
+- A "plug-in check": on every connection, read faults, diff against last time, report
+- A coding profile file: everything coded on this car, re-applied in one pass after a
+  software update
+- ISTA+ end-to-end: test plan navigation and service functions through the same tools
 
-## Status
+## Safety, plainly
 
-The SSH/capture/log primitives are proven in practice. The v2 text-first layer
-(`state.ps1`, UIA input, elevation control) is built and syntax-checked but **not yet
-run against the live laptop** - `scripts/smoke.py --deploy` is the one-command
-deploy-and-verify for the next time the garage laptop is online.
+Coding writes to control units. This tool makes it easier, not safer. Keep the rules:
+engine off and ignition on, one ECU at a time, backup before, verify after, charger on
+for anything longer than a coding, and never update a module's software without
+reading the secure-coding section of the guide first.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

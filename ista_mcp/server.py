@@ -339,7 +339,7 @@ def setup() -> str:
         f"'{REMOTE_WIN}' -ErrorAction Stop; 'defender-exclusion-ok' }} catch "
         f"{{ 'defender-exclusion-FAILED: ' + $_.Exception.Message }}\"")
     for f in ("grab.ps1", "input.ps1", "state.ps1", "elev.ps1", "diagnose.ps1",
-              "run-hidden.vbs"):
+              "caltarget.ps1", "run-hidden.vbs"):
         _scp(str(SCRIPTS / f), f"{GARAGE}:{REMOTE_DIR}/{f}")
     # wscript + run-hidden.vbs: no console window at all (a hidden powershell still
     # flashes one, which steals focus and kills Java popup menus mid-sequence).
@@ -355,6 +355,8 @@ def setup() -> str:
     }
     for tn, tr in tasks.items():
         _ssh(f'schtasks /create /tn {tn} /tr "{tr}" /sc once /st 23:59 /it /f')
+    _ssh(f'schtasks /create /tn IstaCal /tr "{hidden} {REMOTE_WIN}\\caltarget.ps1" '
+         f'/sc once /st 23:59 /it /f')
     ips = f"{hidden} {REMOTE_WIN}\\input.ps1"
     # /rl HIGHEST => the input task runs ELEVATED (high integrity), so injected clicks
     # land into an elevated ISTA window instead of being silently dropped by UIPI -
@@ -367,7 +369,7 @@ def setup() -> str:
     # schtasks /create leaves the default "don't start on batteries" condition set.
     # The garage laptop runs unplugged at the car, and every task then just sits
     # in Queued - capture and input both silently die (2 Sep 2026). Clear it.
-    names = ",".join(f"'{t}'" for t in [*tasks, "IstaInput"])
+    names = ",".join(f"'{t}'" for t in [*tasks, "IstaInput", "IstaCal"])
     _ssh("powershell -NoProfile -Command \"$s=New-ScheduledTaskSettingsSet "
          "-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
          "-ExecutionTimeLimit (New-TimeSpan -Hours 72); "
@@ -383,6 +385,52 @@ def setup() -> str:
             "fallback. Capture/input run via /it scheduled tasks in the console "
             "session, so a desktop must be logged in (a wedged Task Scheduler after "
             "an install = reboot; diagnose() will say so).")
+
+
+@mcp.tool()
+def calibrate() -> str:
+    """Self-test of capture and click accuracy on THIS laptop. Opens a full-screen
+    target window with five numbered markers, reads the physical screen size, takes
+    one capture and compares its size, then clicks each marker through the normal
+    input path and reads back where the clicks landed. Run it after setup() on any
+    new laptop and after changing display scaling. Do not drive an app until it
+    reports 5/5 hits and a matching capture size. Needs ISTA_MCP_ALLOW_INPUT=1 for
+    the click half; without it only the capture check runs. Nothing touches the car."""
+    cal = f"{REMOTE_WIN}\\cal.txt"
+    _ssh(f'del /q "{cal}" 2>nul & schtasks /run /tn IstaCal', timeout=20)
+    time.sleep(4)
+    raw = _ssh(f'type "{cal}"', timeout=20)
+    targets = {int(m[0]): (int(m[1]), int(m[2]))
+               for m in re.findall(r"TARGET (\d) (\d+) (\d+)", raw)}
+    sm = re.search(r"SCREEN (\d+) (\d+)", raw)
+    if not sm or len(targets) != 5:
+        return ("calibration target did not start (no SCREEN/TARGET lines). Run "
+                "diagnose(): usually no desktop session, scheduler not executing, or "
+                "setup() not run yet. Raw: " + raw[:200])
+    sw, sh = int(sm[1]), int(sm[2])
+    _ssh("schtasks /run /tn IstaGrab", timeout=20)
+    time.sleep(3)
+    frame = _pull("screen.jpg", timeout=30)
+    cw = ch = 0
+    if frame:
+        # JPEG SOF0/SOF2 marker carries height,width - no image library needed
+        i = frame.find(b"\xff\xc0"); i = i if i >= 0 else frame.find(b"\xff\xc2")
+        if i >= 0:
+            ch = int.from_bytes(frame[i+5:i+7], "big"); cw = int.from_bytes(frame[i+7:i+9], "big")
+    cap = f"capture {cw}x{ch} ({'match' if (cw, ch) == (sw, sh) else 'MISMATCH - clicks will be off'})"
+    if not ALLOW_INPUT:
+        _ssh(f'echo CLOSED>> "{cal}"')
+        return f"screen {sw}x{sh} · {cap} · clicks not tested (ISTA_MCP_ALLOW_INPUT unset)"
+    _action("\n".join(f"CLICK {x} {y}" for _, (x, y) in sorted(targets.items())))
+    time.sleep(4)
+    raw = _ssh(f'type "{cal}"', timeout=20)
+    hits = {int(m[0]): (int(m[1]), int(m[2])) for m in re.findall(r"HIT (\d) (\d+) (\d+)", raw)}
+    errs = [max(abs(hits[n][0] - targets[n][0]), abs(hits[n][1] - targets[n][1])) for n in hits]
+    if len(hits) < 5:
+        _ssh(f'schtasks /end /tn IstaCal', timeout=20)
+    return (f"screen {sw}x{sh} · {cap} · hits {len(hits)}/5 · max error "
+            f"{max(errs) if errs else 'n/a'} px" + ("" if len(hits) == 5 else
+            f" · missed: {sorted(set(targets) - set(hits))} - run diagnose(), check input.log"))
 
 
 @mcp.tool()
